@@ -1,7 +1,8 @@
 /* CS Arena - client (three.js r128) */
 (function () {
 'use strict';
-const { CFG, WEAPONS, BOXES, SITES } = CS;
+const { CFG, WEAPONS, SHOP, MAPS } = CS;
+let MAP = MAPS.dust, BOXES = MAP.boxes, SITES = MAP.sites; // carte actuelle (changée par setMap)
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const R = CFG.radius;
@@ -44,60 +45,96 @@ function canvasTex(draw, size) {
   t.anisotropy = 4;
   return t;
 }
-const sandTex = canvasTex((g, s) => {
-  g.fillStyle = '#c9b287'; g.fillRect(0, 0, s, s);
-  for (let i = 0; i < 700; i++) {
-    g.fillStyle = (i % 2 ? 'rgba(110,85,50,' : 'rgba(255,245,210,') + (Math.random() * 0.14) + ')';
-    g.fillRect(Math.random() * s, Math.random() * s, 2, 2);
-  }
-  g.strokeStyle = 'rgba(80,60,30,.18)'; g.strokeRect(0, 0, s, s);
-});
-const wallTex = canvasTex((g, s) => {
-  g.fillStyle = '#b79c6c'; g.fillRect(0, 0, s, s);
-  g.strokeStyle = 'rgba(70,50,25,.45)'; g.lineWidth = 2;
-  for (let y = 0; y < 4; y++) {
-    const yy = y * s / 4; g.beginPath(); g.moveTo(0, yy); g.lineTo(s, yy); g.stroke();
-    for (let x = 0; x < 2; x++) { const xx = ((x + (y % 2) * 0.5) * s / 2) % s; g.beginPath(); g.moveTo(xx, yy); g.lineTo(xx, yy + s / 4); g.stroke(); }
-  }
-  for (let i = 0; i < 400; i++) { g.fillStyle = 'rgba(60,40,20,' + Math.random() * 0.08 + ')'; g.fillRect(Math.random() * s, Math.random() * s, 3, 3); }
-});
-const crateTex = canvasTex((g, s) => {
-  g.fillStyle = '#8a6335'; g.fillRect(0, 0, s, s);
-  g.strokeStyle = '#4e3418'; g.lineWidth = 5; g.strokeRect(3, 3, s - 6, s - 6);
-  g.lineWidth = 3; g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
-  for (let i = 0; i < 200; i++) { g.fillStyle = 'rgba(40,20,0,' + Math.random() * 0.1 + ')'; g.fillRect(Math.random() * s, Math.random() * s, 2, 8); }
-});
+function groundTex(base) {
+  return canvasTex((g, s) => {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 700; i++) {
+      g.fillStyle = (i % 2 ? 'rgba(40,35,30,' : 'rgba(255,250,235,') + (Math.random() * 0.12) + ')';
+      g.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+    }
+    g.strokeStyle = 'rgba(30,25,20,.18)'; g.strokeRect(0, 0, s, s);
+  });
+}
+function wallTexOf(base) {
+  return canvasTex((g, s) => {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(30,22,12,.45)'; g.lineWidth = 2;
+    for (let y = 0; y < 4; y++) {
+      const yy = y * s / 4; g.beginPath(); g.moveTo(0, yy); g.lineTo(s, yy); g.stroke();
+      for (let x = 0; x < 2; x++) { const xx = ((x + (y % 2) * 0.5) * s / 2) % s; g.beginPath(); g.moveTo(xx, yy); g.lineTo(xx, yy + s / 4); g.stroke(); }
+    }
+    for (let i = 0; i < 400; i++) { g.fillStyle = 'rgba(20,15,10,' + Math.random() * 0.08 + ')'; g.fillRect(Math.random() * s, Math.random() * s, 3, 3); }
+  });
+}
+function crateTexOf(base) {
+  return canvasTex((g, s) => {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(30,18,5,.7)'; g.lineWidth = 5; g.strokeRect(3, 3, s - 6, s - 6);
+    g.lineWidth = 3; g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(s, 0); g.lineTo(0, s); g.stroke();
+    for (let i = 0; i < 200; i++) { g.fillStyle = 'rgba(40,20,0,' + Math.random() * 0.1 + ')'; g.fillRect(Math.random() * s, Math.random() * s, 2, 8); }
+  });
+}
+// conteneur : tôle ondulée de la couleur demandée
+const contCache = {};
+function contTex(color) {
+  if (contCache[color]) return contCache[color];
+  const hex = '#' + color.toString(16).padStart(6, '0');
+  return (contCache[color] = canvasTex((g, s) => {
+    g.fillStyle = hex; g.fillRect(0, 0, s, s);
+    for (let x = 0; x < s; x += 8) { g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(x, 0, 3, s); g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 4, 0, 2, s); }
+    g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 4; g.strokeRect(2, 2, s - 4, s - 4);
+    for (let i = 0; i < 150; i++) { g.fillStyle = 'rgba(90,50,20,' + Math.random() * 0.15 + ')'; g.fillRect(Math.random() * s, Math.random() * s, 3, 3); }
+  }));
+}
 
 const worldMeshes = [];
-(function buildWorld() {
-  const gt = sandTex.clone(); gt.needsUpdate = true; gt.repeat.set(24, 24);
+let worldGroup = null;
+function setMap(id) {
+  const M = MAPS[id] || MAPS.dust;
+  if (worldGroup && M === MAP) return;
+  MAP = M; BOXES = M.boxes; SITES = M.sites;
+  if (worldGroup) {
+    scene.remove(worldGroup);
+    worldGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
+  }
+  worldGroup = new THREE.Group(); scene.add(worldGroup);
+  worldMeshes.length = 0;
+  if (typeof clearHoles === 'function') clearHoles();
+  const th = M.theme;
+  scene.background = new THREE.Color(th.sky);
+  scene.fog = new THREE.Fog(th.sky, 45, 140);
+  const gTex = groundTex(th.ground), wTex = wallTexOf(th.wall), cTex = crateTexOf(th.crate);
+  const gt = gTex.clone(); gt.needsUpdate = true; gt.repeat.set(24, 24);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), new THREE.MeshLambertMaterial({ map: gt }));
   ground.rotation.x = -Math.PI / 2;
-  scene.add(ground); worldMeshes.push(ground);
+  worldGroup.add(ground); worldMeshes.push(ground);
   BOXES.forEach((b) => {
-    const crate = b.h <= 2.7;
-    const t = (crate ? crateTex : wallTex).clone(); t.needsUpdate = true;
+    let base;
+    if (b.t === 'cont') base = contTex(b.c || 0x777777);
+    else base = b.h <= 2.7 ? cTex : wTex;
+    const t = base.clone(); t.needsUpdate = true;
     t.repeat.set(Math.max(1, Math.round(Math.max(b.w, b.d) / 3)), Math.max(1, Math.round(b.h / 3)));
     const m = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), new THREE.MeshLambertMaterial({ map: t }));
     m.position.set(b.x, b.h / 2, b.z);
-    scene.add(m); worldMeshes.push(m);
+    worldGroup.add(m); worldMeshes.push(m);
   });
   Object.keys(SITES).forEach((k) => {
     const s = SITES[k];
     const ring = new THREE.Mesh(new THREE.RingGeometry(s.r - 0.35, s.r, 56), new THREE.MeshBasicMaterial({ color: 0xd8432f, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2; ring.position.set(s.x, 0.03, s.z); scene.add(ring);
+    ring.rotation.x = -Math.PI / 2; ring.position.set(s.x, 0.03, s.z); worldGroup.add(ring);
     const lt = canvasTex((g, sz) => { g.clearRect(0, 0, sz, sz); g.fillStyle = 'rgba(216,67,47,.8)'; g.font = 'bold 110px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(k, sz / 2, sz / 2 + 6); }, 128);
     lt.wrapS = lt.wrapT = THREE.ClampToEdgeWrapping;
     const letter = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: lt, transparent: true }));
-    letter.rotation.x = -Math.PI / 2; letter.position.set(s.x, 0.04, s.z); scene.add(letter);
+    letter.rotation.x = -Math.PI / 2; letter.position.set(s.x, 0.04, s.z); worldGroup.add(letter);
   });
-})();
+  [gTex, wTex, cTex].forEach((t) => t.dispose());
+}
 
 /* ============================================================
    État
    ============================================================ */
 let ws = null, myId = null, myTeam = null, connected = false, locked = false;
-let joinInfo = { name: '', room: 'main', team: 'auto' };
+let joinInfo = { name: '', room: 'main', team: 'auto', map: 'dust' };
 const S = { ph: 'wait', te: 0, rd: 0, sc: { T: 0, CT: 0 }, b: { s: 'none', x: 0, z: 0 }, pl: new Map(), me: null, recv: 0, names: new Map() };
 const ui = { buy: false, chat: false, board: false };
 const K = {};
@@ -433,7 +470,7 @@ function fire() {
   let sp = w.spread + (spd / 6) * (w.spread * 2 + 0.012) + (P.ground ? 0 : 0.04) + P.burst * 0.0016;
   if (P.crouch > 0.5) sp *= 0.65;
   if (aiming) sp *= 0.45;           // visée : tir plus précis
-  if (cur === 'awp') sp = scoped ? 0.0005 + (spd / 6) * 0.03 : 0.07;
+  if (w.scope) sp = scoped ? 0.0005 + (spd / 6) * 0.03 : (cur === 'awp' ? 0.07 : 0.045);
   const targets = worldMeshes.concat(enemyMeshes());
   const pellets = w.pellets || 1;
   const hits = {};
@@ -467,13 +504,13 @@ function fire() {
   });
   send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [firstEnd.x, firstEnd.y, firstEnd.z] });
   Snd.shot(cur, 1);
-  P.kick += w.rec * (0.9 + Math.random() * 0.4) * (cur === 'awp' && scoped ? 0.4 : 1) * (aiming ? 0.75 : 1);
+  P.kick += w.rec * (0.9 + Math.random() * 0.4) * (w.scope && scoped ? 0.4 : 1) * (aiming ? 0.75 : 1);
   P.yaw += (Math.random() - 0.5) * w.rec * 0.5;
   P.burst = Math.min(30, P.burst + 1);
   vmKick = Math.min(1, vmKick + (w.slot === 1 ? 0.7 : 0.5));
   if (vmFlash) { vmFlash.visible = true; vmFlash.rotation.z = Math.random() * 6; vmFlash.scale.setScalar(0.7 + Math.random() * 0.6); flashT = 0.045; }
-  if (cur === 'awp') { scoped = false; }
-  if (a.mag <= 0 && a.res > 0 && cur !== 'awp') setTimeout(() => { if (alive() && ammo[cur] && ammo[cur].mag <= 0) reload(); }, 150);
+  if (w.scope) { scoped = false; }
+  if (a.mag <= 0 && a.res > 0 && !w.scope) setTimeout(() => { if (alive() && ammo[cur] && ammo[cur].mag <= 0) reload(); }, 150);
   else if (a.mag <= 0 && a.res > 0) setTimeout(() => { if (alive() && ammo[cur] && ammo[cur].mag <= 0) reload(); }, 600);
   return true;
 }
@@ -508,7 +545,7 @@ function connect() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   $('err').textContent = '';
   try { ws = new WebSocket(url); } catch (e) { $('err').textContent = 'Connexion impossible.'; return; }
-  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team });
+  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map });
   ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (connected) { connected = false; leaveToMenu('Connexion au serveur perdue.'); }
@@ -529,7 +566,7 @@ function leaveToMenu(text) {
 function onMsg(m) {
   switch (m.type) {
     case 'welcome':
-      myId = m.id; myTeam = null; connected = true; S.me = null; ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
+      myId = m.id; myTeam = null; connected = true; S.me = null; setMap(m.map); ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
       $('play').disabled = false;
       buildVM(cur);
       tryLock();
@@ -555,6 +592,7 @@ function onMsg(m) {
 function onSnap(m) {
   const prev = S.me, pb = S.b.s;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
+  if (m.mp && m.mp !== MAP.id) setMap(m.mp);
   const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
   if (oldTeam && myTeam && oldTeam !== myTeam) {
@@ -660,14 +698,8 @@ function addChat(m) {
    Boutique
    ============================================================ */
 function buyItems() {
-  const t = myTeam;
-  return [
-    ['Pistolets', ['deagle']],
-    ['Pistolets-mitrailleurs', [t === 'T' ? 'mac10' : 'mp9']],
-    ['Armes lourdes', ['nova']],
-    ['Fusils', [t === 'T' ? 'ak47' : 'm4a1', 'awp']],
-    ['Équipement', ['armor'].concat(t === 'CT' ? ['kit'] : [])]
-  ];
+  const t = myTeam === 'CT' ? 'CT' : 'T';
+  return SHOP[t].concat([['Équipement', ['armor'].concat(t === 'CT' ? ['kit'] : [])]]);
 }
 let buySig = '';
 function renderBuy(force) {
@@ -689,7 +721,7 @@ function renderBuy(force) {
       else { const w = WEAPONS[id]; name = w.n; price = w.price; stat = w.dmg + (w.pellets ? ' x' + w.pellets : '') + ' dégâts · ' + w.mag + ' balles'; has = me.p === id || me.s === id; }
       const b = document.createElement('button');
       b.className = 'item' + (has ? ' own' : ''); b.disabled = has || me.mo < price || !me.bo;
-      const k = document.createElement('span'); k.className = 'k'; k.textContent = String(n);
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = n <= 9 ? String(n) : n === 10 ? '0' : '';
       const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = name;
       const pr = document.createElement('div'); pr.className = 'pr'; pr.textContent = has ? 'Acheté' : '$' + price;
       const st = document.createElement('div'); st.className = 'st'; st.textContent = stat;
@@ -774,7 +806,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && ui.buy) { closeBuy(); return; }
   if (ui.buy) {
     const m = /^(Digit|Numpad)(\d)$/.exec(e.code);
-    if (m) { const btn = $('buyBody').querySelectorAll('button.item')[+m[2] - 1]; if (btn && !btn.disabled) doBuy(btn.dataset.id); }
+    if (m) { const btn = $('buyBody').querySelectorAll('button.item')[m[2] === '0' ? 9 : +m[2] - 1]; if (btn && !btn.disabled) doBuy(btn.dataset.id); }
     return;
   }
   if (!locked) return;
@@ -805,13 +837,17 @@ let chosenTeam = store.get('cs_team', 'auto');
 function paintTeams() { document.querySelectorAll('#teams button').forEach((b) => b.classList.toggle('on', b.dataset.t === chosenTeam)); }
 paintTeams();
 document.querySelectorAll('#teams button').forEach((b) => b.addEventListener('click', () => { chosenTeam = b.dataset.t; paintTeams(); }));
+let chosenMap = MAPS[store.get('cs_map', 'dust')] ? store.get('cs_map', 'dust') : 'dust';
+function paintMaps() { document.querySelectorAll('#maps button').forEach((b) => b.classList.toggle('on', b.dataset.m === chosenMap)); }
+paintMaps(); setMap(chosenMap);
+document.querySelectorAll('#maps button').forEach((b) => b.addEventListener('click', () => { chosenMap = b.dataset.m; store.set('cs_map', chosenMap); paintMaps(); if (!connected) setMap(chosenMap); }));
 
 function startGame() {
   Snd.init(); Snd.setVolume(vol);
   const name = $('name').value.trim() || 'Joueur' + Math.floor(Math.random() * 900 + 100);
   const room = $('room').value.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'main';
   store.set('cs_name', $('name').value.trim()); store.set('cs_room', $('room').value.trim()); store.set('cs_team', chosenTeam);
-  joinInfo = { name, room, team: chosenTeam };
+  joinInfo = { name, room, team: chosenTeam, map: chosenMap };
   $('play').disabled = true; $('err').textContent = 'Connexion…';
   connect();
 }

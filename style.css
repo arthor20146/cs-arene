@@ -21,6 +21,7 @@ input[type=range]{width:100%;accent-color:var(--t)}
 .teams{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .teams button{padding:12px 8px;background:#0b0e11;border:1px solid var(--line);color:var(--txt);font-size:15px}
 .teams button.on{border-color:var(--txt);background:#1a2128}
+.teams.maps{grid-template-columns:repeat(2,1fr)}
 .teams button[data-t=T].on{border-color:var(--t);color:var(--t)}
 .teams button[data-t=CT].on{border-color:var(--ct);color:var(--ct)}
 .go{width:100%;margin-top:22px;padding:15px;font-size:20px;font-weight:bold;background:var(--t);border:0;color:#16100a}

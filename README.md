@@ -13,7 +13,21 @@ npm start          # http://localhost:3000
 Plusieurs onglets ou plusieurs PC sur le même réseau peuvent rejoindre la même **salle** (champ « Salle » du menu, ou `?room=mon-code` dans l'URL).
 Le serveur accepte 10 joueurs par salle. Avec un seul joueur, tu es en mode entraînement (la manche ne s'arrête pas à l'élimination).
 
-Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16), `MIN_PLAYERS` (1).
+Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16), `MIN_PLAYERS` (1), `MAP` (carte par défaut si personne n'en choisit : `dust` ou `docks`).
+
+## Cartes
+
+- **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.
+- **Docks** : port industriel avec conteneurs, entrepôt central qui coupe le milieu en deux voies.
+
+La carte est choisie dans le menu par le premier joueur qui crée la salle. Les joueurs qui rejoignent ensuite arrivent sur la même carte.
+Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajoute un bouton dans `index.html` (`<button data-m="mon-id">`).
+
+## Armes
+
+- **Terroristes** : Glock-18 (départ), Tec-9, Galil AR, AK-47, SG 553, MAC-10
+- **Anti-terroristes** : USP-S (départ), Five-SeveN, FAMAS, M4A1-S, AUG, MP9
+- **Les deux camps** : P250, Desert Eagle, UMP-45, P90, Nova, XM1014, SSG 08, AWP
 
 ## Règles de jeu
 

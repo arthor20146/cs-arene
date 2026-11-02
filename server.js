@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const CS = require('./public/shared.js');
-const { CFG, WEAPONS, SITES, SPAWNS } = CS;
+const { CFG, WEAPONS, MAPS } = CS;
 
 const PORT = process.env.PORT || 3000;
 const PUB = path.join(__dirname, 'public');
@@ -36,8 +36,9 @@ const r2 = (v) => Math.round(v * 100) / 100;
 const send = (ws, o) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o)); };
 
 class Room {
-  constructor(name) {
+  constructor(name, mapId) {
     this.name = name;
+    this.map = MAPS[mapId] || MAPS[process.env.MAP] || MAPS.dust; // carte choisie par le créateur de la salle
     this.players = new Map();
     this.nextId = 1;
     this.resetMatch();
@@ -82,7 +83,7 @@ class Room {
 
   /* ---------- manches ---------- */
   spawnPlayer(p, idx) {
-    const list = SPAWNS[p.team];
+    const list = this.map.spawns[p.team];
     const sp = list[idx % list.length];
     p.x = sp.x; p.y = sp.y; p.z = sp.z; p.yaw = sp.yaw; p.pitch = 0; p.c = 0;
     p.alive = true; p.hp = 100; p.act = null; p.pg = 0;
@@ -187,7 +188,7 @@ class Room {
     const n = Math.max(1, Math.min(pellets, num(m.n, 1) | 0));
     const hs = !!m.hs && !w.pellets;
     let dmg = w.dmg * n * (hs ? w.hs : 1);
-    if (wid !== 'awp' && wid !== 'knife') dmg *= Math.max(0.65, 1 - dist / (w.range * 1.5));
+    if (!w.scope && wid !== 'knife') dmg *= Math.max(0.65, 1 - dist / (w.range * 1.5));
     if (t.armor > 0) {
       let mult = hs ? CFG.armorHead : CFG.armorBody;
       if (w.ap) mult = 1 - (1 - mult) * (1 - w.ap);
@@ -260,6 +261,7 @@ class Room {
         if (!ok) { p.act = null; p.pg = 0; return; }
         p.pg = (now - a.t) / (CFG.plant * 1000);
         if (p.pg >= 1) {
+          const SITES = this.map.sites;
           const site = Object.keys(SITES).find((k) => Math.hypot(p.x - SITES[k].x, p.z - SITES[k].z) <= SITES[k].r);
           if (!site) { p.act = null; p.pg = 0; return; }
           b.s = 'planted'; b.c = null; b.x = p.x; b.y = 0; b.z = p.z; b.site = site; b.at = now + CFG.bombTime * 1000;
@@ -306,7 +308,7 @@ class Room {
     }));
     const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
-      type: 'snap', ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
+      type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
       b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl
     };
     this.players.forEach((p) => {
@@ -349,6 +351,7 @@ class Room {
         if (!p.alive || this.phase !== 'live') return;
         const b = this.bomb;
         if (p.team === 'T' && b.s === 'carried' && b.c === p.id) {
+          const SITES = this.map.sites;
           const inSite = Object.keys(SITES).some((k) => Math.hypot(p.x - SITES[k].x, p.z - SITES[k].z) <= SITES[k].r);
           if (inSite && p.y < 0.5) p.act = { type: 'plant', t: now, x: p.x, z: p.z };
         } else if (p.team === 'CT' && b.s === 'planted' && Math.hypot(p.x - b.x, p.z - b.z) < 2.4) {
@@ -413,12 +416,12 @@ wss.on('connection', (ws) => {
       if (m.type !== 'join') return;
       const rn = String(m.room || 'main').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16) || 'main';
       let r = rooms.get(rn);
-      if (!r) { r = new Room(rn); rooms.set(rn, r); }
+      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : ''); rooms.set(rn, r); }
       if (r.players.size >= CFG.maxPlayers) { send(ws, { type: 'err', text: 'Salle pleine (' + CFG.maxPlayers + ' joueurs max)' }); return; }
       const name = String(m.name || 'Joueur').replace(/[\u0000-\u001f<>]/g, '').slice(0, 16).trim() || 'Joueur';
       room = r;
       me = r.addPlayer(ws, name, m.team);
-      send(ws, { type: 'welcome', id: me.id, room: rn, cfg: { maxRounds: CFG.maxRounds } });
+      send(ws, { type: 'welcome', id: me.id, room: rn, map: r.map.id, cfg: { maxRounds: CFG.maxRounds } });
       r.msg(name + ' a rejoint la partie', 'info');
       return;
     }
