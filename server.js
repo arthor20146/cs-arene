@@ -314,9 +314,13 @@ class Room {
     if (!w || w.slot === 3 || w.price <= 0) return;
     if (w.team && w.team !== p.team) return;
     if (p.money < w.price) return;
+    const held = w.slot === 1 ? p.inv.primary : p.inv.secondary;
+    if (held === item) return;                 // déjà en main : on ne paie pas deux fois
     p.money -= w.price;
+    if (held) this.dropWeapon(p, held, 0.9);   // l'ancienne arme tombe au sol
     if (w.slot === 1) p.inv.primary = item; else p.inv.secondary = item;
     p.inv.cur = item;
+    delete p.am[item];                         // arme neuve : munitions pleines
   }
 
   /* ---------- boucle ---------- */

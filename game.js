@@ -35,7 +35,7 @@ function setMap(id) {
   MAP = M; BOXES = M.boxes; SITES = M.sites;
   worldMeshes = GFX.buildWorld(M);
   fx.clear();
-  Snd.setAmbient(M.id);
+  Snd.setAmbient(M.style || M.id);
 }
 
 /* ============================================================
@@ -401,9 +401,9 @@ function worldNormal(h) {
 // sol sous le joueur : bruit de pas
 function surfaceAt(x, z, y) {
   if (y > 0.2) for (const b of BOXES) {
-    if (Math.abs(b.h - y) < 0.3 && Math.abs(x - b.x) < b.w / 2 + 0.3 && Math.abs(z - b.z) < b.d / 2 + 0.3) return b.t ? 'metal' : b.h <= 2.7 ? 'wood' : 'stone';
+    if (Math.abs(b.h - y) < 0.3 && Math.abs(x - b.x) < b.w / 2 + 0.3 && Math.abs(z - b.z) < b.d / 2 + 0.3) return b.t === 'w' ? 'stone' : b.t ? 'metal' : b.h <= 2.7 ? 'wood' : 'stone';
   }
-  if (MAP.id === 'dust') { for (const k in SITES) if (Math.abs(x - SITES[k].x) < SITES[k].r + 1.6 && Math.abs(z - SITES[k].z) < SITES[k].r + 1.6) return 'stone'; return 'sand'; }
+  if ((MAP.style || MAP.id) === 'dust') { for (const k in SITES) if (Math.abs(x - SITES[k].x) < SITES[k].r + 1.6 && Math.abs(z - SITES[k].z) < SITES[k].r + 1.6) return 'stone'; return 'sand'; }
   return 'stone';
 }
 
@@ -942,7 +942,7 @@ paintMaps(); setMap(chosenMap);
 document.querySelectorAll('#maps button').forEach((b) => b.addEventListener('click', () => { chosenMap = b.dataset.m; store.set('cs_map', chosenMap); paintMaps(); if (!connected) setMap(chosenMap); }));
 
 function startGame() {
-  Snd.init(); Snd.setVolume(vol); Snd.setAmbient(MAP.id);
+  Snd.init(); Snd.setVolume(vol); Snd.setAmbient(MAP.style || MAP.id);
   const name = $('name').value.trim() || 'Joueur' + Math.floor(Math.random() * 900 + 100);
   const room = $('room').value.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'main';
   store.set('cs_name', $('name').value.trim()); store.set('cs_room', $('room').value.trim()); store.set('cs_team', chosenTeam);

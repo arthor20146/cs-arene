@@ -132,7 +132,7 @@ const SURF = {
   ribs(u, v, o) {
     const r = (u * 10) % 1, p = sstep(0.1, 0.22, r) - sstep(0.6, 0.72, r);
     const n = fbm(u, v, 4, 5, 41), dirt = fbm(u * 2 % 1, v, 3, 4, 42), f = fbm(u, v, 50, 2, 6);
-    const rust = sstep(0.73, 0.78, n + (v > 0.92 ? 0.12 : 0) + (1 - p) * 0.02);
+    const rust = sstep(0.76, 0.82, n + (v > 0.92 ? 0.1 : 0) + (1 - p) * 0.02);
     const streak = sstep(0.42, 0.72, fbm(u, 0.2, 20, 3, 44)) * v;
     const c = 0.78 + 0.14 * f - 0.3 * streak - 0.22 * sstep(0.45, 0.8, dirt);
     o.r = c; o.g = c; o.b = c;
@@ -231,6 +231,9 @@ function resize() {
 /* ---------- ciel (calculé une fois puis stocké dans un cubemap) ---------- */
 const SKY = {
   dust: { sun: [0.58, 0.55, 0.42], col: 0xfff0d8, sunI: 2.5, zen: 0x2f6fc0, hor: 0xcfdde4, gnd: 0xc2a579, fog: 0xd9d2c0, dens: 0.0042, cloud: 0.42, cDark: 0.72, hemi: 0.1, env: 0.62 },
+  // Médina : fin d'après-midi, ombres longues ; Cargo : ciel bas et lourd
+  medina: { sun: [0.62, 0.34, 0.5], col: 0xffe2c2, sunI: 2.3, zen: 0x4a78b0, hor: 0xf0cfa8, gnd: 0xb8966a, fog: 0xe2c4a0, dens: 0.0058, cloud: 0.34, cDark: 0.7, hemi: 0.2, env: 0.95 },
+  cargo: { sun: [0.3, 0.5, -0.55], col: 0xd8e0ea, sunI: 0.95, zen: 0x46545f, hor: 0xa7afb2, gnd: 0x3e4246, fog: 0x98a2a8, dens: 0.0125, cloud: 0.95, cDark: 0.36, hemi: 0.22, env: 1.1 },
   docks: { sun: [-0.5, 0.44, 0.52], col: 0xffe1bd, sunI: 1.5, zen: 0x5a7288, hor: 0xc9ccc8, gnd: 0x4f5458, fog: 0xb8bfc2, dens: 0.0085, cloud: 0.82, cDark: 0.5, hemi: 0.14, env: 0.8 }
 };
 const skyFrag = `
@@ -302,7 +305,7 @@ function setSky(id) {
   cur.sky = K;
 }
 // vm : éclairage du bras selon qu'on est au soleil ou à l'ombre
-function setVmSun(k, viewCam) { const K = cur.sky || SKY.dust; vmSun.intensity = K.sunI * (0.14 + 0.72 * k); vmHemi.intensity = K.hemi * 1.2; }
+function setVmSun(k, viewCam) { const K = cur.sky || SKY.dust; vmSun.intensity = Math.min(K.sunI, 2.5) * (0.12 + 0.46 * k); vmHemi.intensity = K.hemi * 1.2; }
 
 /* ---------- construction géométrique fusionnée ---------- */
 class Batch {
@@ -435,28 +438,41 @@ function blobShadow() {
 
 function paintGround(M) {
   const S = 2048, W = 92, c = document.createElement('canvas'); c.width = c.height = S;
-  const g = c.getContext('2d'), r = rng(M.id === 'dust' ? 5 : 6), px = S / W;
+  const g = c.getContext('2d'), r = rng(M.id.length * 3 + 5), px = S / W, dustS = (M.style || M.id) === 'dust';
   const X = (x) => (x + W / 2) * px, Y = (z) => (z + W / 2) * px;
   const blob = (x, y, rad, col, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, col + a + ')'); gr.addColorStop(1, col + '0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); };
-  for (let i = 0; i < 260; i++) blob(r() * S, r() * S, 40 + r() * 170, r() < 0.5 ? 'rgba(30,22,14,' : 'rgba(235,220,190,', M.id === 'dust' ? 0.11 : 0.055);
-  if (M.id === 'dust') { // traces de pas et de pneus
+  for (let i = 0; i < 260; i++) blob(r() * S, r() * S, 40 + r() * 170, r() < 0.5 ? 'rgba(30,22,14,' : 'rgba(235,220,190,', dustS ? 0.11 : 0.055);
+  if ((M.style || M.id) === 'dust') { // traces de pas et de pneus
     g.strokeStyle = 'rgba(60,44,28,.06)'; g.lineWidth = 7;
     for (let i = 0; i < 40; i++) { g.beginPath(); const x = r() * S; let y = r() * S; g.moveTo(x, y); g.bezierCurveTo(x + r() * 300 - 150, y + 150, x + r() * 300 - 150, y + 300, x + r() * 200 - 100, y + 500); g.stroke(); }
   } else { // marquage au sol, rails, huile
     for (let i = 0; i < 40; i++) blob(r() * S, r() * S, 12 + r() * 46, 'rgba(8,8,10,', 0.5);
     g.setLineDash([60, 40]); g.strokeStyle = 'rgba(214,170,40,.72)'; g.lineWidth = 12;
-    [[-23, -40, -23, 40], [23, -40, 23, 40], [-40, 30, 40, 30]].forEach((l) => { g.beginPath(); g.moveTo(X(l[0]), Y(l[1])); g.lineTo(X(l[2]), Y(l[3])); g.stroke(); });
+    (M.id === 'docks' ? [[-23, -40, -23, 40], [23, -40, 23, 40], [-40, 30, 40, 30]] : []).forEach((l) => { g.beginPath(); g.moveTo(X(l[0]), Y(l[1])); g.lineTo(X(l[2]), Y(l[3])); g.stroke(); });
     g.setLineDash([]); g.strokeStyle = 'rgba(70,72,76,.9)'; g.lineWidth = 6;
-    [-37.4, -36.0].forEach((x) => { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), S); g.stroke(); });
+    (M.id === 'docks' ? [-37.4, -36.0] : []).forEach((x) => { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), S); g.stroke(); });
     g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < 2600; i++) { g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(r() * S, r() * S, 2 + r() * 12, 2 + r() * 12); } g.globalCompositeOperation = 'source-over';
   }
   // ombre de contact au pied de chaque obstacle
-  g.save(); g.shadowColor = 'rgba(0,0,0,1)'; g.fillStyle = '#000';
-  M.boxes.forEach((b) => {
-    g.shadowBlur = 26 * Math.min(1.6, 0.5 + b.h / 4) * (px / 22); g.globalAlpha = 0.62;
-    g.fillRect(X(b.x - b.w / 2), Y(b.z - b.d / 2), b.w * px, b.d * px);
+  // (un seul tracé par hauteur : le flou est coûteux, surtout sur les cartes à nombreux blocs)
+  g.save(); g.shadowColor = 'rgba(0,0,0,1)'; g.fillStyle = '#000'; g.globalAlpha = 0.62;
+  [[0, 1.6], [1.6, 4], [4, 99]].forEach(([lo, hi]) => {
+    const list = M.boxes.filter((b) => b.h > lo && b.h <= hi);
+    if (!list.length) return;
+    g.shadowBlur = 26 * Math.min(1.6, 0.5 + (lo + hi) / 2 / 4) * (px / 22);
+    g.beginPath(); list.forEach((b) => g.rect(X(b.x - b.w / 2), Y(b.z - b.d / 2), b.w * px, b.d * px)); g.fill();
   });
   g.restore();
+  // fléchage peint au sol dans les labyrinthes : lettre du site et sens à suivre
+  (M.marks || []).forEach((m) => {
+    g.save(); g.translate(X(m[0]), Y(m[1])); g.rotate(Math.atan2(m[3], m[2]));
+    g.fillStyle = 'rgba(190,42,30,.6)'; g.strokeStyle = 'rgba(190,42,30,.6)'; g.lineWidth = 0.14 * px;
+    g.beginPath(); g.moveTo(-0.1 * px, 0); g.lineTo(0.72 * px, 0); g.stroke();
+    g.beginPath(); g.moveTo(0.95 * px, 0); g.lineTo(0.55 * px, -0.26 * px); g.lineTo(0.55 * px, 0.26 * px); g.closePath(); g.fill();
+    g.rotate(-Math.atan2(m[3], m[2])); g.font = 'bold ' + (0.8 * px | 0) + 'px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(m[4], -Math.cos(Math.atan2(m[3], m[2])) * 0.55 * px, -Math.sin(Math.atan2(m[3], m[2])) * 0.55 * px);
+    g.restore();
+  });
   // sites de bombe : peinture au pochoir (usée)
   Object.keys(M.sites).forEach((k) => {
     const s = M.sites[k], col = 'rgba(190,42,30,';
@@ -477,16 +493,27 @@ function paintPuddles(seed) {
   const t = new THREE.CanvasTexture(c); return t;
 }
 
+// un conteneur a-t-il au moins une face visible depuis le sol ?
+function exposed(M, b) {
+  const inside = (x, z) => M.boxes.some((o) => o !== b && Math.abs(x - o.x) < o.w / 2 && Math.abs(z - o.z) < o.d / 2);
+  for (const t of [-0.4, 0, 0.4]) {
+    if (!inside(b.x + t * b.w, b.z + b.d / 2 + 0.5) || !inside(b.x + t * b.w, b.z - b.d / 2 - 0.5)) return true;
+    if (!inside(b.x + b.w / 2 + 0.5, b.z + t * b.d) || !inside(b.x - b.w / 2 - 0.5, b.z + t * b.d)) return true;
+  }
+  return false;
+}
+
 function buildWorld(M, force) {
   if (cur.group && cur.map === M && !force) return cur.rays;
   if (cur.mid !== M.id) { setSky(M.id); cur.mid = M.id; }
+  const style = M.style || M.id;
   if (cur.group) {
     scene.remove(cur.group);
     cur.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) { if (o.material.map) o.material.map.dispose(); if (o.material.alphaMap) o.material.alphaMap.dispose(); o.material.dispose(); } });
   }
   const G = new THREE.Group(); scene.add(G);
   cur.group = G; cur.map = M; cur.rays = [];
-  const dust = M.id === 'dust', r = rng(dust ? 91 : 92), B = new Batch(), D = new Batch(), Far = new Batch();
+  const dust = style === 'dust', r = rng(M.id.length * 7 + (dust ? 91 : 92)), B = new Batch(), D = new Batch(), Far = new Batch();
   const wallK = dust ? 'plaster' : 'concrete', baseK = dust ? 'stone' : 'concrete', groundK = dust ? 'sand' : 'asphalt';
   const rayGroup = new THREE.Group(); G.add(rayGroup);
   const addRay = (x, y, z, w, h, d, mat, pen) => {
@@ -511,15 +538,21 @@ function buildWorld(M, force) {
   M.boxes.forEach((b, i) => {
     const tint = new THREE.Color().setHSL(0, 0, 0.88 + r() * 0.14);
     const big = b.h >= 2.8 && b.t !== 'cont';
-    if (b.t === 'cont') {
+    if (b.t === 'w') { // muret
+      const wc = shade(1, tint);
+      B.box(b.x, 0, b.z, b.w, b.h, b.d, dust ? 3 : 4, [[0, b.h, dust ? 'stone' : 'concrete', shade(0.6, tint), wc]], dust ? 'stone' : 'concrete', shade(0.95, tint));
+      addRay(b.x, 0, b.z, b.w, b.h, b.d, 'stone', 0);
+    } else if (b.t === 'cont') {
       const col = lin(b.c || 0x777777);
       B.box(b.x, 0, b.z, b.w, b.h, b.d, 2.44, [[0, 0.5, 'ribs', shade(0.58, col), shade(0.92, col)], [0.5, b.h, 'ribs', shade(0.92, col), shade(1.08, col)]], 'ribs', shade(0.75, col));
       const long = b.w > b.d, L = long ? b.w : b.d, T = long ? b.d : b.w, h = b.h;
       const addF = (ox, oz, w, d, y, hh, k) => { B.box(b.x + ox, y, b.z + oz, w, hh, d, 1, [[0, hh, 'ribs', shade(k * 0.8, col), shade(k, col)]], 'ribs', shade(k, col)); };
       [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach((p) => { const a = p[0] * ((long ? L : T) / 2 - 0.05), e = p[1] * ((long ? T : L) / 2 - 0.05); addF(a, e, 0.16, 0.16, 0, h, 0.72); });
-      const tiers = h > 3 ? 2 : 1, th = h / tiers;
-      for (let t = 0; t < tiers; t++) { // longerons
-        [0.04, th - 0.06].forEach((y) => { const yy = t * th + y; if (long) { addF(0, b.d / 2 - 0.05, b.w, 0.14, yy, 0.13, 0.72); addF(0, -b.d / 2 + 0.05, b.w, 0.14, yy, 0.13, 0.72); } else { addF(b.w / 2 - 0.05, 0, 0.14, b.d, yy, 0.13, 0.72); addF(-b.w / 2 + 0.05, 0, 0.14, b.d, yy, 0.13, 0.72); } });
+      if (!exposed(M, b)) { addRay(b.x, 0, b.z, b.w, b.h, b.d, 'metal', 2); return; } // bloc caché : pas de détails
+      const tiers = Math.max(1, Math.round(h / 2.6)), th = h / tiers;
+      for (const yy of [0.04, h - 0.17].concat(tiers > 1 ? [h / tiers - 0.06] : [])) { // longerons
+        if (long) { addF(0, b.d / 2 - 0.05, b.w, 0.14, yy, 0.13, 0.72); addF(0, -b.d / 2 + 0.05, b.w, 0.14, yy, 0.13, 0.72); }
+        else { addF(b.w / 2 - 0.05, 0, 0.14, b.d, yy, 0.13, 0.72); addF(-b.w / 2 + 0.05, 0, 0.14, b.d, yy, 0.13, 0.72); }
       }
       // portes : barres de fermeture sur un petit côté
       const end = long ? 1 : 0;
@@ -561,7 +594,7 @@ function buildWorld(M, force) {
     }
   });
   // arches
-  (ARCHES[M.id] || []).forEach((a) => {
+  (M.arches || ARCHES[M.id] || []).forEach((a) => {
     const [x, z, w, d, y, h] = a;
     if (dust) {
       B.box(x, y, z, w, h, d, 3, [[0, 0.26, 'stone', shade(0.7), shade(0.82)], [0.26, h - 0.32, 'plaster', shade(0.9), shade(1)], [h - 0.32, h, 'stone', shade(1), shade(1)]], 'stone', shade(0.9));
@@ -612,7 +645,18 @@ function buildWorld(M, force) {
 
   // bâches / auvents (Dust)
   const clothB = new Batch();
-  if (dust) {
+  if (M.lines) { // linge entre les façades des ruelles
+    const pal = [0xb5442e, 0x2e6b8a, 0xcda034, 0xe6dcc6, 0x7c3a2e, 0x5a7a4a];
+    M.lines.forEach((l, i) => {
+      const [x, z, ns] = l, y = 4.5, a = new THREE.Vector3(x - (ns ? 1 : 0), y, z - (ns ? 0 : 1)), b2 = new THREE.Vector3(x + (ns ? 1 : 0), y, z + (ns ? 0 : 1));
+      B.beam('ribsS', a, b2, 0.008, lin(0x2a2a2a), 3);
+      for (let k = 0; k < 3; k++) {
+        const t = 0.14 + k * 0.28, c = lin(pal[(i * 3 + k) % 6]), px = a.x + (b2.x - a.x) * t, pz = a.z + (b2.z - a.z) * t, w = 0.42, h = 0.55 + k * 0.17;
+        clothB.quad('c', [px, y - h, pz], [ns ? w : 0, 0, ns ? 0 : w], [0, h, 0], [ns ? 0 : 1, 0, ns ? 1 : 0], 0, 0, 1, 1, shade(0.8, c), c);
+      }
+    });
+  }
+  if (M.id === 'dust') {
     [[-20, 2.77, 1, 0xb5442e], [21, 2.77, 1, 0x2e6b8a], [-9, 1.23, -1, 0xcda034], [9, 1.23, -1, 0x7c3a2e]].forEach((a) => {
       const [x, z, s, c] = a, w = 3.6, col = lin(c);
       for (let i = 0; i < 6; i++) {
@@ -634,7 +678,7 @@ function buildWorld(M, force) {
       const a = tops[l[0]], b = tops[l[1]];
       [-0.6, 0.6].forEach((o) => { let pv = null; for (let i = 0; i <= 8; i++) { const t = i / 8, p = a.clone().lerp(b, t); p.x += o * (a.z === b.z ? 0 : 1); p.z += o * (a.z === b.z ? 1 : 0) * 0; p.y -= 0.2 + 1.1 * 4 * t * (1 - t) * 0.5; if (pv) Far.beam('ribsS', pv, p, 0.012, cable, 3); pv = p; } });
     });
-  } else {
+  } else if (M.id === 'docks') {
     // lampadaires de quai
     const pol = lin(0x4d5356);
     [[-38, 12], [38, 12], [-38, -24], [38, -24], [0, 38.6]].forEach((p) => {

@@ -32,8 +32,13 @@ Tout est généré au chargement, sans fichier image ni son :
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.
 - **Docks** : port industriel avec conteneurs, entrepôt central qui coupe le milieu en deux voies.
 
+- **Médina** : ruelles étroites, impasses, cours et recoins, en fin d'après-midi.
+- **Cargo** : labyrinthe de conteneurs empilés, sous un ciel bas.
+
+Sur Médina et Cargo, des flèches peintes au sol indiquent les sites A et B.
+
 La carte est choisie dans le menu par le premier joueur qui crée la salle. Les joueurs qui rejoignent ensuite arrivent sur la même carte.
-Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajoute un bouton dans `index.html` (`<button data-m="mon-id">`).
+Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajoute un bouton dans `index.html` (`<button data-m="mon-id">`). Le plus simple est de copier Médina : sa carte est dessinée en texte (`grid`, 40 lignes de 40 caractères, 1 caractère = 2 m), et la légende se trouve au-dessus de `fromGrid`. Il faut laisser libres les zones de départ en haut et en bas, au centre.
 
 ## Réalisme du combat
 
@@ -56,7 +61,7 @@ Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajou
 - **T** : poser la bombe sur le site A ou B (maintenir `E` 3,2 s dans la zone rouge). **CT** : empêcher la pose ou désamorcer (10 s, 5 s avec kit).
 - Une manche se termine par élimination, explosion, désamorçage ou fin du temps (victoire CT si la bombe n'est pas posée).
 - Équipement : gilet $650, gilet + casque $1000. Économie : départ $800, victoire +$3250, défaite +$1400 (+$500 par défaite d'affilée, max 4), kills selon l'arme, pose de la bombe +$300.
-- Armes au sol : `Q` jette l'arme en main, et un joueur tué lâche sa meilleure arme, avec ses munitions. On ramasse en passant dessus si l'emplacement est libre, ou avec `E` pour échanger. Les armes au sol disparaissent à chaque nouvelle manche.
+- Armes au sol : `Q` jette l'arme en main, et un joueur tué lâche sa meilleure arme, avec ses munitions. On ramasse en passant dessus si l'emplacement est libre, ou avec `E` pour échanger. Acheter une arme alors qu'on en porte une du même type fait tomber l'ancienne, avec ses munitions. Les armes au sol disparaissent à chaque nouvelle manche.
 - Mi-temps : les équipes changent de camp. Les survivants gardent leur équipement, les morts repartent avec le pistolet de base.
 
 ## Commandes
