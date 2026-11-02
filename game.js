@@ -103,7 +103,7 @@ const ui = { buy: false, chat: false, board: false };
 const K = {};
 const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, kick: 0, burst: 0, ground: true, crouch: 0, shake: 0, bob: 0, stepD: 0 };
 let cur = 'glock', lastCur = 'knife', ammo = {}, reloading = false, rlEnd = 0, nextShot = 0, swapT = 0;
-let fireHeld = false, fireLatch = false, scoped = false, needRefill = false, lastInv = { p: null, s: null };
+let fireHeld = false, fireLatch = false, scoped = false, rmbHeld = false, aiming = false, adsT = 0, needRefill = false, lastInv = { p: null, s: null };
 let specId = null, banTimer = 0, noticeTimer = 0, hitTimer = 0, dmgTimer = 0;
 let sens = parseFloat(store.get('cs_sens', '1')) || 1;
 let vol = parseFloat(store.get('cs_vol', '0.6'));
@@ -346,6 +346,7 @@ function updateRemotes(dt) {
    ============================================================ */
 let vm = null, vmFlash = null, vmKick = 0;
 const VM_BASE = new THREE.Vector3(0.2, -0.2, -0.42);
+const VM_ADS = new THREE.Vector3(0, -0.085, -0.34);   // arme centrée quand on vise
 function buildVM(id) {
   if (vm) cam.remove(vm);
   const w = WEAPONS[id], g = new THREE.Group();
@@ -431,6 +432,7 @@ function fire() {
   const spd = Math.hypot(P.vx, P.vz);
   let sp = w.spread + (spd / 6) * (w.spread * 2 + 0.012) + (P.ground ? 0 : 0.04) + P.burst * 0.0016;
   if (P.crouch > 0.5) sp *= 0.65;
+  if (aiming) sp *= 0.45;           // visée : tir plus précis
   if (cur === 'awp') sp = scoped ? 0.0005 + (spd / 6) * 0.03 : 0.07;
   const targets = worldMeshes.concat(enemyMeshes());
   const pellets = w.pellets || 1;
@@ -465,7 +467,7 @@ function fire() {
   });
   send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [firstEnd.x, firstEnd.y, firstEnd.z] });
   Snd.shot(cur, 1);
-  P.kick += w.rec * (0.9 + Math.random() * 0.4) * (cur === 'awp' && scoped ? 0.4 : 1);
+  P.kick += w.rec * (0.9 + Math.random() * 0.4) * (cur === 'awp' && scoped ? 0.4 : 1) * (aiming ? 0.75 : 1);
   P.yaw += (Math.random() - 0.5) * w.rec * 0.5;
   P.burst = Math.min(30, P.burst + 1);
   vmKick = Math.min(1, vmKick + (w.slot === 1 ? 0.7 : 0.5));
@@ -527,7 +529,7 @@ function leaveToMenu(text) {
 function onMsg(m) {
   switch (m.type) {
     case 'welcome':
-      myId = m.id; connected = true; S.me = null; ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
+      myId = m.id; myTeam = null; connected = true; S.me = null; ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
       $('play').disabled = false;
       buildVM(cur);
       tryLock();
@@ -553,7 +555,11 @@ function onMsg(m) {
 function onSnap(m) {
   const prev = S.me, pb = S.b.s;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
+  const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
+  if (oldTeam && myTeam && oldTeam !== myTeam) {
+    banner('MI-TEMPS', '#ffffff', 'Tu joues maintenant ' + teamName(myTeam) + ' · ton score te suit', 4000);
+  }
   S.pl = new Map();
   const seen = new Set();
   for (const e of m.pl) {
@@ -716,14 +722,14 @@ function tryLock() {
 }
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
-  if (!locked) { Object.keys(K).forEach((k) => { K[k] = false; }); fireHeld = false; fireLatch = false; scoped = false; send({ type: 'act', on: 0 }); }
+  if (!locked) { Object.keys(K).forEach((k) => { K[k] = false; }); fireHeld = false; fireLatch = false; scoped = false; rmbHeld = false; send({ type: 'act', on: 0 }); }
 });
 canvas.addEventListener('click', () => { if (connected && !ui.buy && !locked) tryLock(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('mousemove', (e) => {
   if (!locked) return;
-  const s = 0.0022 * sens * (scoped ? 0.35 : 1);
+  const s = 0.0022 * sens * (scoped ? 0.35 : aiming ? 0.7 : 1);
   P.yaw -= e.movementX * s;
   P.pitch = clamp(P.pitch - e.movementY * s, -1.5, 1.5);
 });
@@ -733,11 +739,12 @@ document.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     if (!alive()) { cycleSpec(); return; }
     fireHeld = true; fireLatch = true;
-  } else if (e.button === 2 && alive() && WEAPONS[cur].scope && !reloading) {
-    scoped = !scoped; Snd.click();
+  } else if (e.button === 2) {
+    rmbHeld = true;                                   // maintenu = viser
+    if (alive() && WEAPONS[cur].scope && !reloading) { scoped = !scoped; Snd.click(); } // AWP : lunette
   }
 });
-document.addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
+document.addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; if (e.button === 2) rmbHeld = false; });
 document.addEventListener('wheel', (e) => {
   if (!locked || !alive()) return;
   const o = owned(); const i = o.indexOf(cur);
@@ -787,7 +794,7 @@ document.addEventListener('keyup', (e) => {
   if (e.code === 'Tab') ui.board = false;
   if (e.code === 'KeyE') send({ type: 'act', on: 0 });
 });
-window.addEventListener('blur', () => { Object.keys(K).forEach((k) => { K[k] = false; }); fireHeld = false; ui.board = false; send({ type: 'act', on: 0 }); });
+window.addEventListener('blur', () => { Object.keys(K).forEach((k) => { K[k] = false; }); fireHeld = false; rmbHeld = false; ui.board = false; send({ type: 'act', on: 0 }); });
 
 /* ============================================================
    Menu
@@ -857,7 +864,12 @@ const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + 
 let hudAcc = 0;
 function updateHud() {
   const me = S.me; if (!me) return;
-  $('sCT').textContent = S.sc.CT; $('sT').textContent = S.sc.T;
+  const mine = myTeam === 'CT' ? 'CT' : 'T', opp = mine === 'T' ? 'CT' : 'T';
+  const col = { T: '#e0a040', CT: '#5aa0ff' };
+  $('sCT').textContent = S.sc[mine]; $('sCT').style.color = col[mine];
+  $('sCT').nextElementSibling.textContent = 'TOI · ' + teamName(mine).toUpperCase();
+  $('sT').textContent = S.sc[opp]; $('sT').style.color = col[opp];
+  $('sT').nextElementSibling.textContent = teamName(opp).toUpperCase();
   const left = Math.max(0, S.te - (performance.now() - S.recv) / 1000);
   const t = $('timer');
   t.classList.toggle('bomb', S.b.s === 'planted');
@@ -900,10 +912,11 @@ function renderBoard() {
   const rows = Array.from(S.pl.values());
   const board = $('board'); board.textContent = '';
   const head = document.createElement('div'); head.className = 'head';
-  const l = document.createElement('span'); l.className = 'tCT'; l.textContent = 'Anti-terroristes ' + S.sc.CT;
-  const rr = document.createElement('span'); rr.className = 'tT'; rr.textContent = 'Terroristes ' + S.sc.T;
+  const mine = myTeam === 'CT' ? 'CT' : 'T', opp = mine === 'T' ? 'CT' : 'T';
+  const l = document.createElement('span'); l.className = 't' + mine; l.textContent = 'Toi · ' + teamName(mine) + ' ' + S.sc[mine];
+  const rr = document.createElement('span'); rr.className = 't' + opp; rr.textContent = teamName(opp) + ' ' + S.sc[opp];
   head.append(l, rr); board.appendChild(head);
-  ['CT', 'T'].forEach((tm) => {
+  [mine, opp].forEach((tm) => {
     const tb = document.createElement('table');
     tb.innerHTML = '<tr><th>' + teamName(tm) + '</th><th class="num">Kills</th><th class="num">Morts</th></tr>';
     rows.filter((p) => p.t === tm).sort((a, b) => b.k - a.k || a.d - b.d).forEach((p) => {
@@ -934,6 +947,9 @@ function update(dt, now) {
   const w = WEAPONS[cur];
   const isAlive = alive();
   const frozen = S.ph === 'freeze' || S.ph === 'wait';
+  // visée au clic droit (toutes les armes sauf couteau et AWP qui a sa lunette)
+  aiming = rmbHeld && isAlive && locked && cur !== 'knife' && !w.scope && !reloading && swapT <= 0 && !ui.buy && !ui.chat;
+  adsT += ((aiming ? 1 : 0) - adsT) * Math.min(1, 14 * dt);
 
   // --- mouvement
   if (isAlive) {
@@ -942,7 +958,7 @@ function update(dt, now) {
     const len = Math.hypot(f, r) || 1;
     const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
     const crouching = !!(K.KeyC || K.ControlLeft);
-    let spd = 6 * (w.spd || 1) * (K.ShiftLeft ? 0.55 : 1) * (crouching ? 0.5 : 1) * (scoped ? 0.6 : 1);
+    let spd = 6 * (w.spd || 1) * (K.ShiftLeft ? 0.55 : 1) * (crouching ? 0.5 : 1) * (scoped ? 0.6 : 1) * (aiming ? 0.7 : 1);
     if (frozen) spd = 0;
     const tx = (-sy * f + cy * r) / len * spd, tz = (-cy * f - sy * r) / len * spd;
     const ctl = P.ground ? 11 : 1.6;
@@ -988,13 +1004,15 @@ function update(dt, now) {
   const sh = P.shake * 0.05;
   cam.position.set(cx + (Math.random() - 0.5) * sh, ey + bob + (Math.random() - 0.5) * sh, cz + (Math.random() - 0.5) * sh);
   cam.rotation.set(pitch + P.kick + (Math.random() - 0.5) * sh, yaw, 0);
-  const wantFov = scoped ? 24 : 78;
+  const wantFov = scoped ? 24 : aiming ? 58 : 78;
   if (Math.abs(cam.fov - wantFov) > 0.1) { cam.fov += (wantFov - cam.fov) * Math.min(1, 14 * dt); cam.updateProjectionMatrix(); }
   if (vm) {
     vm.visible = showVM && !scoped;
     const rlp = reloading ? Math.sin(clamp(1 - (rlEnd - now) / Math.max(0.1, w.rl), 0, 1) * Math.PI) : 0;
     const swp = swapT > 0 ? swapT / 0.28 : 0;
-    vm.position.set(VM_BASE.x + Math.sin(P.bob * 0.5) * 0.008, VM_BASE.y - rlp * 0.22 - swp * 0.25 + Math.abs(Math.sin(P.bob)) * 0.008, VM_BASE.z + vmKick * 0.07);
+    const bobK = 1 - adsT * 0.8; // moins de balancement en visée
+    const bx0 = VM_BASE.x + (VM_ADS.x - VM_BASE.x) * adsT, by0 = VM_BASE.y + (VM_ADS.y - VM_BASE.y) * adsT, bz0 = VM_BASE.z + (VM_ADS.z - VM_BASE.z) * adsT;
+    vm.position.set(bx0 + Math.sin(P.bob * 0.5) * 0.008 * bobK, by0 - rlp * 0.22 - swp * 0.25 + Math.abs(Math.sin(P.bob)) * 0.008 * bobK, bz0 + vmKick * 0.07 * (1 - adsT * 0.5));
     vm.rotation.set(vmKick * 0.12 + rlp * 0.5, 0, -rlp * 0.3);
   }
 
