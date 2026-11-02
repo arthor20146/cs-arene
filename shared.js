@@ -25,7 +25,10 @@
     armorBody: 0.7,      // multiplicateur de dégâts corps si gilet
     armorHead: 0.85,     // multiplicateur de dégâts tête si casque
     penLoss: 0.6,        // dégâts conservés à chaque obstacle traversé
-    tagTime: 0.45        // s de ralentissement quand on est touché
+    tagTime: 0.45,       // s de ralentissement quand on est touché
+    maxDrops: 24,        // armes au sol par salle
+    pickRange: 1.9,      // m : portée de E pour prendre une arme
+    pickAuto: 1.0        // m : ramassage automatique si l'emplacement est libre
   };
 
   // Multiplicateurs de dégâts par zone du corps (h = tête : voir w.hs)

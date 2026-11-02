@@ -56,6 +56,7 @@ Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajou
 - **T** : poser la bombe sur le site A ou B (maintenir `E` 3,2 s dans la zone rouge). **CT** : empêcher la pose ou désamorcer (10 s, 5 s avec kit).
 - Une manche se termine par élimination, explosion, désamorçage ou fin du temps (victoire CT si la bombe n'est pas posée).
 - Équipement : gilet $650, gilet + casque $1000. Économie : départ $800, victoire +$3250, défaite +$1400 (+$500 par défaite d'affilée, max 4), kills selon l'arme, pose de la bombe +$300.
+- Armes au sol : `Q` jette l'arme en main, et un joueur tué lâche sa meilleure arme, avec ses munitions. On ramasse en passant dessus si l'emplacement est libre, ou avec `E` pour échanger. Les armes au sol disparaissent à chaque nouvelle manche.
 - Mi-temps : les équipes changent de camp. Les survivants gardent leur équipement, les morts repartent avec le pistolet de base.
 
 ## Commandes
@@ -66,9 +67,10 @@ Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajou
 | Souris / clic gauche | Viser / tirer |
 | Clic droit (maintenu) | Viser par les organes de visée · armes à lunette : lunette |
 | Espace / C / Maj | Sauter / s'accroupir / marcher |
-| R, 1 2 3, molette, Q | Recharger, armes, arme précédente |
+| R, 1 2 3, molette | Recharger, changer d'arme |
+| Q | Jeter son arme au sol (touche A sur AZERTY) |
 | B | Boutique (1 à 9 pour acheter) |
-| E (maintenu) | Poser / désamorcer la bombe |
+| E | Prendre une arme au sol · maintenu : poser / désamorcer la bombe |
 | Tab / Entrée | Scores / chat |
 
 **Ctrl et le navigateur :** le jeu passe en plein écran au lancement. Sur Chrome, Edge et Opera (en https ou localhost), cela protège Ctrl+W pendant la partie. Sur Firefox et Safari, Ctrl+W ne peut pas être bloqué : le navigateur demande confirmation, et il vaut mieux s'accroupir avec C. Echap quitte le plein écran et affiche la pause ; cliquer sur Reprendre y retourne.

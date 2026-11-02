@@ -364,6 +364,13 @@ function selectBest() {
 }
 function refillAmmo() { ammo = { knife: { mag: 0, res: 0 } }; owned().forEach((id) => { if (id !== 'knife') ammo[id] = full(id); }); }
 
+function ammoMsg() { const a = ammo[cur]; return a ? [a.mag, a.res] : undefined; }
+function dropCurrent() {
+  if (!alive() || cur === 'knife') return;
+  send({ type: 'drop', am: ammoMsg() });
+  Snd.part('out');
+}
+
 function reload() {
   const w = WEAPONS[cur], a = ammo[cur];
   if (!a || !w.mag || reloading || a.mag >= w.mag || a.res <= 0) return;
@@ -546,6 +553,7 @@ function connect() {
 function leaveToMenu(text) {
   connected = false; S.me = null;
   remotes.forEach((r, id) => removeRemote(id));
+  syncDrops([]);
   if (document.pointerLockElement) document.exitPointerLock();
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   $('err').textContent = text || '';
@@ -570,6 +578,7 @@ function onMsg(m) {
     case 'shoot': onRemoteShot(m); break;
     case 'kill': onKill(m); break;
     case 'hitc': if (m.kill) Snd.kill(); break;
+    case 'got': gotAmmo[m.w] = { mag: m.mag, res: m.res }; Snd.part('in'); break;
     case 'hurt': onHurt(m); break;
     case 'msg': notice(m.text, m.kind === 'err' ? '#ff7b6e' : m.kind === 'bomb' ? '#ff9a3c' : '#ffd65a'); break;
     case 'chat': addChat(m); break;
@@ -583,6 +592,7 @@ function onSnap(m) {
   const prev = S.me, pb = S.b.s;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
   if (m.mp && m.mp !== MAP.id) setMap(m.mp);
+  if (m.dp) syncDrops(m.dp);
   const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
   if (oldTeam && myTeam && oldTeam !== myTeam) {
@@ -615,11 +625,51 @@ function onSnap(m) {
   if (oldTeam && myTeam && oldTeam !== myTeam) buildVM(cur);
   if (needRefill) { refillAmmo(); needRefill = false; selectBest(); }
   else {
-    if (me.p && me.p !== lastInv.p) { ammo[me.p] = full(me.p); selectWeapon(me.p); }
-    if (me.s && me.s !== lastInv.s) { ammo[me.s] = full(me.s); if (!me.p || cur === lastInv.s) selectWeapon(me.s); }
-    if (!owned().includes(cur)) selectBest();
+    const given = (id) => { const g = gotAmmo[id]; delete gotAmmo[id]; return g || full(id); };
+    if (me.p && me.p !== lastInv.p) { ammo[me.p] = given(me.p); selectWeapon(me.p); }
+    if (me.s && me.s !== lastInv.s) { ammo[me.s] = given(me.s); if (!me.p || cur === lastInv.s) selectWeapon(me.s); }
+    if (me.al && !owned().includes(cur)) selectBest();
   }
   lastInv = { p: me.p, s: me.s };
+}
+
+/* ---------- armes au sol ---------- */
+const drops = new Map();
+const gotAmmo = {};
+function syncDrops(list) {
+  const seen = new Set();
+  list.forEach((d) => {
+    seen.add(d.i);
+    let e = drops.get(d.i);
+    if (!e) {
+      const g = Models.gunTP(d.w);
+      g.traverse((o) => { o.receiveShadow = true; });
+      g.rotation.set(0, d.r, Math.PI / 2);          // couchée sur le flanc
+      scene.add(g);
+      e = { d, g, t: d.n ? 0 : 1 };
+      drops.set(d.i, e);
+    }
+    e.d = d;
+  });
+  drops.forEach((e, id) => { if (!seen.has(id)) { scene.remove(e.g); drops.delete(id); } });
+}
+function updateDrops(dt) {
+  drops.forEach((e) => {
+    const d = e.d, was = e.t;
+    e.t = Math.min(1, e.t + dt / 0.38);
+    const t = e.t, y0 = d.oy + 1.05;
+    e.g.position.set(d.ox + (d.x - d.ox) * t, y0 + (d.y - y0) * t * t + 0.9 * t * (1 - t) + 0.035, d.oz + (d.z - d.oz) * t);
+    if (t < 1) e.g.rotation.x = (1 - t) * 3.2;
+    else if (was < 1) { e.g.rotation.x = 0; const sp = spatial(d.x, d.y, d.z); if (sp.d < 30) Snd.impact('metal', sp.v * 0.8, sp.pan, sp); }
+  });
+}
+function nearestDrop() {
+  let best = null, bd = CFG.pickRange;
+  drops.forEach((e) => {
+    const n = Math.hypot(P.x - e.d.x, P.z - e.d.z);
+    if (n <= bd && Math.abs(P.y - e.d.y) < 1.5) { bd = n; best = e.d; }
+  });
+  return best;
 }
 
 function onRemoteShot(m) {
@@ -864,7 +914,7 @@ document.addEventListener('keydown', (e) => {
     K[e.code] = true;
     if (e.code === 'KeyE' && alive()) send({ type: 'act', on: 1 });
     if (e.code === 'KeyR') reload();
-    if (e.code === 'KeyQ') selectWeapon(lastCur);
+    if (e.code === 'KeyQ') dropCurrent();
     if (e.code === 'Digit1' || e.code === 'Numpad1') selectWeapon(S.me && S.me.p);
     if (e.code === 'Digit2' || e.code === 'Numpad2') selectWeapon(S.me && S.me.s);
     if (e.code === 'Digit3' || e.code === 'Numpad3') selectWeapon('knife');
@@ -982,6 +1032,13 @@ function updateHud() {
       if (inSite) prompt = 'Maintiens E pour poser la bombe';
     }
     if (myTeam === 'CT' && S.b.s === 'planted' && Math.hypot(P.x - S.b.x, P.z - S.b.z) < 2.4) prompt = 'Maintiens E pour désamorcer';
+    if (!prompt) {
+      const d = nearestDrop();
+      if (d) {
+        const W = WEAPONS[d.w], held = W.slot === 1 ? me.p : me.s;
+        prompt = (held ? 'E : échanger contre ' : 'E : ramasser ') + W.n + ' (' + d.m + ' / ' + d.s + ')';
+      }
+    }
     if (S.ph === 'freeze' && !prompt) prompt = 'B : boutique';
   }
   $('prompt').textContent = prompt;
@@ -1163,7 +1220,7 @@ function update(dt, now) {
   sendAcc += dt;
   if (sendAcc >= 0.033) {
     sendAcc = 0;
-    if (isAlive) send({ type: 'st', x: +P.x.toFixed(2), y: +P.y.toFixed(2), z: +P.z.toFixed(2), yaw: +(P.yaw + P.recY).toFixed(3), pitch: +(P.pitch + P.recP).toFixed(3), c: P.crouch > 0.5 ? 1 : 0, w: cur, rl: reloading ? 1 : 0 });
+    if (isAlive) send({ type: 'st', x: +P.x.toFixed(2), y: +P.y.toFixed(2), z: +P.z.toFixed(2), yaw: +(P.yaw + P.recY).toFixed(3), pitch: +(P.pitch + P.recP).toFixed(3), c: P.crouch > 0.5 ? 1 : 0, w: cur, rl: reloading ? 1 : 0, am: ammoMsg() });
   }
 }
 
@@ -1173,7 +1230,7 @@ function frame(t) {
   const now = t / 1000;
   if (connected && S.me) {
     update(dt, now);
-    updateRemotes(dt); updateBomb(dt, t);
+    updateRemotes(dt); updateBomb(dt, t); updateDrops(dt);
     fx.update(dt, (p) => { const s = spatial(p.x, p.y, p.z); if (s.d < 8) Snd.casing(s.v); });
     hudAcc += dt;
     if (hudAcc > 0.1) { hudAcc = 0; updateHud(); }

@@ -42,6 +42,8 @@ class Room {
     this.map = MAPS[mapId] || MAPS[process.env.MAP] || MAPS.dust; // carte choisie par le créateur de la salle
     this.players = new Map();
     this.nextId = 1;
+    this.nextDrop = 1;
+    this.snapN = 0;
     this.resetMatch();
     this.timer = setInterval(() => this.tick(), CFG.tick);
   }
@@ -69,7 +71,78 @@ class Room {
     this.liveStart = 0;
     this.started = { T: 0, CT: 0 };
     this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 };
+    this.drops = []; this.dropsDirty = true;
     this.players.forEach((p) => { p.k = 0; p.d = 0; p.survived = false; this.resetLoadout(p, true); p.alive = false; });
+  }
+
+  /* ---------- armes au sol ---------- */
+  groundY(x, z, y) {
+    let g = 0;
+    for (const b of this.map.boxes) {
+      if (b.h <= y + 0.2 && b.h > g && Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) g = b.h;
+    }
+    return g;
+  }
+  ammoOf(p, id) {
+    const w = WEAPONS[id], a = p.am[id];
+    return a ? a : [w.mag, w.res];
+  }
+  // pose l'arme devant le joueur (à ses pieds si un mur est juste devant)
+  dropWeapon(p, id, dist) {
+    const w = WEAPONS[id];
+    if (!w || w.slot === 3) return;
+    const [mag, res] = this.ammoOf(p, id);
+    let x = p.x - Math.sin(p.yaw) * dist, z = p.z - Math.cos(p.yaw) * dist;
+    const inWall = this.map.boxes.some((b) => b.h > p.y + 0.2 && Math.abs(x - b.x) < b.w / 2 + 0.1 && Math.abs(z - b.z) < b.d / 2 + 0.1);
+    if (inWall) { x = p.x; z = p.z; }
+    x = Math.max(-39.5, Math.min(39.5, x)); z = Math.max(-39.5, Math.min(39.5, z));
+    this.drops.push({
+      i: this.nextDrop++, w: id, x: r2(x), y: r2(this.groundY(x, z, p.y)), z: r2(z), r: r2(Math.random() * 6.28),
+      ox: r2(p.x), oy: r2(p.y), oz: r2(p.z), mag, res, by: p.id, at: Date.now()
+    });
+    while (this.drops.length > CFG.maxDrops) this.drops.shift();
+    this.dropsDirty = true;
+    if (p.inv.primary === id) p.inv.primary = null; else if (p.inv.secondary === id) p.inv.secondary = null;
+    delete p.am[id];
+    if (p.inv.cur === id) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
+  }
+  takeDrop(p, d) {
+    const w = WEAPONS[d.w];
+    this.drops.splice(this.drops.indexOf(d), 1);
+    this.dropsDirty = true;
+    if (w.slot === 1) p.inv.primary = d.w; else p.inv.secondary = d.w;
+    p.inv.cur = d.w;
+    p.am[d.w] = [d.mag, d.res];
+    send(p.ws, { type: 'got', w: d.w, mag: d.mag, res: d.res });
+  }
+  nearDrop(p, range) {
+    let best = null, bd = range;
+    for (const d of this.drops) {
+      const n = Math.hypot(p.x - d.x, p.z - d.z);
+      if (n <= bd && Math.abs(p.y - d.y) < 1.5) { bd = n; best = d; }
+    }
+    return best;
+  }
+  // E : prend l'arme la plus proche, en échange de celle de même type
+  swapDrop(p) {
+    const d = this.nearDrop(p, CFG.pickRange);
+    if (!d) return;
+    const held = WEAPONS[d.w].slot === 1 ? p.inv.primary : p.inv.secondary;
+    if (held) this.dropWeapon(p, held, 0.5);
+    this.takeDrop(p, d);
+  }
+  // on passe sur une arme : ramassée seulement si l'emplacement est libre
+  autoPickup() {
+    for (const p of this.all()) {
+      if (!p.alive) continue;
+      for (const d of this.drops.slice()) {
+        const n = Math.hypot(p.x - d.x, p.z - d.z);
+        if (d.by === p.id) { if (n > 2.2) d.by = 0; continue; } // celui qui jette ne la reprend pas tout de suite
+        if (n > CFG.pickAuto || Math.abs(p.y - d.y) >= 1.5) continue;
+        const free = WEAPONS[d.w].slot === 1 ? !p.inv.primary : !p.inv.secondary;
+        if (free) { this.takeDrop(p, d); break; }
+      }
+    }
   }
 
   /* ---------- équipes ---------- */
@@ -107,8 +180,10 @@ class Room {
       p.pending = null;
       if (!p.team) p.team = this.chooseTeam(p, 'auto');
     });
+    this.drops = []; this.dropsDirty = true;
     const idx = { T: 0, CT: 0 };
     this.all().forEach((p) => {
+      p.am = {};
       if (fullReset) { p.survived = false; this.resetLoadout(p, true); }
       else if (!p.survived) this.resetLoadout(p, false);
       this.spawnPlayer(p, idx[p.team]++);
@@ -163,6 +238,8 @@ class Room {
   killPlayer(v, k, wid, hs) {
     if (!v.alive) return;
     v.alive = false; v.hp = 0; v.d++; v.act = null; v.pg = 0;
+    const held = v.inv.primary || v.inv.secondary;
+    if (held) this.dropWeapon(v, held, 0.6);
     if (this.bomb.s === 'carried' && this.bomb.c === v.id) {
       this.bomb.s = 'dropped'; this.bomb.c = null; this.bomb.x = v.x; this.bomb.y = 0; this.bomb.z = v.z;
     }
@@ -250,6 +327,7 @@ class Room {
     if (this.phase === 'wait') {
       if (this.players.size >= CFG.minPlayers) this.startRound();
     } else if (this.phase === 'freeze') {
+      this.autoPickup();
       if (now >= this.phaseEnd) { this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000; }
     } else if (this.phase === 'live') {
       this.tickLive(now);
@@ -263,6 +341,7 @@ class Room {
 
   tickLive(now) {
     const b = this.bomb;
+    this.autoPickup();
     // ramassage de la bombe
     if (b.s === 'dropped') {
       for (const p of this.alive('T')) {
@@ -330,6 +409,11 @@ class Room {
       type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
       b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl
     };
+    // armes au sol : à chaque changement, et chaque seconde pour ceux qui arrivent
+    if (this.dropsDirty || ++this.snapN >= 20) {
+      common.dp = this.drops.map((d) => ({ i: d.i, w: d.w, x: d.x, y: d.y, z: d.z, r: d.r, ox: d.ox, oy: d.oy, oz: d.oz, n: now - d.at < 500 ? 1 : 0, m: d.mag, s: d.res }));
+      this.dropsDirty = false; this.snapN = 0;
+    }
     this.players.forEach((p) => {
       common.me = {
         hp: Math.max(0, p.hp), ar: Math.round(p.armor), he: p.helmet ? 1 : 0, mo: p.money, p: p.inv.primary, s: p.inv.secondary,
@@ -349,6 +433,7 @@ class Room {
         p.lastSt = now;
         p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; p.rl = m.rl ? 1 : 0;
         if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife')) p.inv.cur = m.w;
+        this.noteAmmo(p, m.am);
         if (!p.alive || this.phase === 'freeze') return;
         p.x = Math.max(-40, Math.min(40, num(m.x, p.x)));
         p.y = Math.max(0, Math.min(8, num(m.y, p.y)));
@@ -366,18 +451,28 @@ class Room {
         break;
       }
       case 'hit': this.onHit(p, m); break;
+      case 'drop': {
+        if (!p.alive) return;
+        this.noteAmmo(p, m.am);
+        if (p.inv.cur !== 'knife') this.dropWeapon(p, p.inv.cur, 1.1);
+        break;
+      }
       case 'buy': if (typeof m.item === 'string') this.buy(p, m.item); break;
       case 'act': {
         if (!m.on) { p.act = null; p.pg = 0; return; }
-        if (!p.alive || this.phase !== 'live') return;
+        if (!p.alive) return;
+        if (this.phase === 'freeze') { this.swapDrop(p); break; }
+        if (this.phase !== 'live') return;
         const b = this.bomb;
         if (p.team === 'T' && b.s === 'carried' && b.c === p.id) {
           const SITES = this.map.sites;
           const inSite = Object.keys(SITES).some((k) => Math.hypot(p.x - SITES[k].x, p.z - SITES[k].z) <= SITES[k].r);
-          if (inSite && p.y < 0.5) p.act = { type: 'plant', t: now, x: p.x, z: p.z };
+          if (inSite && p.y < 0.5) { p.act = { type: 'plant', t: now, x: p.x, z: p.z }; break; }
         } else if (p.team === 'CT' && b.s === 'planted' && Math.hypot(p.x - b.x, p.z - b.z) < 2.4) {
           p.act = { type: 'defuse', t: now, x: p.x, z: p.z };
+          break;
         }
+        this.swapDrop(p); // la bombe reste prioritaire sur E
         break;
       }
       case 'team': {
@@ -396,12 +491,19 @@ class Room {
     }
   }
 
+  // munitions de l'arme en main, connues du client : on les garde pour le dépôt au sol
+  noteAmmo(p, am) {
+    const id = p.inv.cur, w = WEAPONS[id];
+    if (!w || !w.mag || !Array.isArray(am)) return;
+    p.am[id] = [Math.max(0, Math.min(w.mag, num(am[0]) | 0)), Math.max(0, Math.min(w.res, num(am[1]) | 0))];
+  }
+
   addPlayer(ws, name, want) {
     const id = this.nextId++;
     const p = {
       id, ws, name, team: null, pending: null, alive: false, hp: 100, armor: 0, kit: false, money: CFG.startMoney,
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
-      k: 0, d: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0
+      k: 0, d: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}
     };
     this.players.set(id, p);
     p.team = this.chooseTeam(p, want);
