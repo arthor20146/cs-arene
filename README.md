@@ -76,6 +76,7 @@ Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajou
 | Q | Jeter son arme au sol (touche A sur AZERTY) |
 | B | Boutique (1 à 9 pour acheter) |
 | E | Prendre une arme au sol · maintenu : poser / désamorcer la bombe |
+| M | Afficher ou fermer la carte complète |
 | Tab / Entrée | Scores / chat |
 
 **Ctrl et le navigateur :** le jeu passe en plein écran au lancement. Sur Chrome, Edge et Opera (en https ou localhost), cela protège Ctrl+W pendant la partie. Sur Firefox et Safari, Ctrl+W ne peut pas être bloqué : le navigateur demande confirmation, et il vaut mieux s'accroupir avec C. Echap quitte le plein écran et affiche la pause ; cliquer sur Reprendre y retourne.

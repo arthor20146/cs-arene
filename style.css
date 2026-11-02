@@ -61,6 +61,7 @@ input[type=range]{width:100%;accent-color:var(--t)}
 #timer{font-size:26px;font-weight:bold;min-width:110px!important;border-left:1px solid var(--line);border-right:1px solid var(--line)}
 #timer.bomb{color:var(--bad)}
 #radar{position:absolute;left:14px;top:14px;width:170px;height:170px;border-radius:50%;border:2px solid #4a5560;background:rgba(0,0,0,.35)}
+#bigmap{position:absolute;left:50%;top:50%;width:min(86vmin,900px);height:min(86vmin,900px);transform:translate(-50%,-50%);border:1px solid var(--line);z-index:5}
 #feed{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
 #feed div{background:rgba(10,13,16,.78);padding:4px 10px;font-size:15px;border-right:3px solid var(--line)}
 #feed div.me{border-right-color:var(--bad);outline:1px solid var(--bad)}

@@ -44,7 +44,7 @@ function setMap(id) {
 let ws = null, myId = null, myTeam = null, connected = false, locked = false;
 let joinInfo = { name: '', room: 'main', team: 'auto', map: 'dust' };
 const S = { ph: 'wait', te: 0, rd: 0, sc: { T: 0, CT: 0 }, b: { s: 'none', x: 0, z: 0 }, pl: new Map(), me: null, recv: 0, names: new Map() };
-const ui = { buy: false, chat: false, board: false };
+const ui = { buy: false, chat: false, board: false, map: false };
 const K = {};
 const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, recP: 0, recY: 0, burst: 0, ground: true, crouch: 0, shake: 0, bob: 0, stepD: 0, tag: 0, landT: 0, stam: 1, dip: 0, dipV: 0, roll: 0, swayX: 0, swayY: 0, mouseX: 0, mouseY: 0, sunK: 1, sunT: 1, deadT: 0 };
 let cur = 'glock', lastCur = 'knife', ammo = {}, reloading = false, rlEnd = 0, rlDur = 1, rlStage = 0, rlEmpty = false, rlNext = 0, nextShot = 0, swapT = 0;
@@ -554,6 +554,7 @@ function leaveToMenu(text) {
   connected = false; S.me = null;
   remotes.forEach((r, id) => removeRemote(id));
   syncDrops([]);
+  ui.map = false; $('bigmap').classList.add('hide');
   if (document.pointerLockElement) document.exitPointerLock();
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   $('err').textContent = text || '';
@@ -914,6 +915,7 @@ document.addEventListener('keydown', (e) => {
     K[e.code] = true;
     if (e.code === 'KeyE' && alive()) send({ type: 'act', on: 1 });
     if (e.code === 'KeyR') reload();
+    if (e.code === 'KeyM') { ui.map = !ui.map; $('bigmap').classList.toggle('hide', !ui.map); }
     if (e.code === 'KeyQ') dropCurrent();
     if (e.code === 'Digit1' || e.code === 'Numpad1') selectWeapon(S.me && S.me.p);
     if (e.code === 'Digit2' || e.code === 'Numpad2') selectWeapon(S.me && S.me.s);
@@ -998,6 +1000,62 @@ function drawRadar() {
   }
   rctx.restore();
   rctx.fillStyle = '#fff'; rctx.beginPath(); rctx.moveTo(c, c - 8); rctx.lineTo(c + 5, c + 5); rctx.lineTo(c - 5, c + 5); rctx.closePath(); rctx.fill();
+}
+
+// carte complète (touche M) : vue du dessus, nord en haut. Le décor est dessiné une fois par carte.
+const bigmap = $('bigmap'), bctx = bigmap.getContext('2d');
+const BIG = bigmap.width, BIGS = BIG / 84;   // 84 m affichés : la carte et une petite marge
+const bx = (x) => BIG / 2 + x * BIGS, bz = (z) => BIG / 2 + z * BIGS;
+let bigBg = null, bigId = '';
+function bigBackground() {
+  const c = document.createElement('canvas'); c.width = c.height = BIG;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(12,15,18,.84)'; g.fillRect(0, 0, BIG, BIG);
+  g.fillStyle = (MAP.style || MAP.id) === 'dust' ? '#5e5442' : '#40454a'; g.fillRect(bx(-40), bz(-40), 80 * BIGS, 80 * BIGS);
+  BOXES.forEach((b) => {
+    if (b.t === 'barrel') g.fillStyle = '#8b8f93';
+    else if (b.t === 'cont') g.fillStyle = '#' + (b.c || 0x777777).toString(16).padStart(6, '0');
+    else if (b.t === 'w') g.fillStyle = '#92876f';
+    else if (b.h <= 2.7) g.fillStyle = '#9a7443';
+    else g.fillStyle = '#1b1f23';
+    g.fillRect(bx(b.x - b.w / 2), bz(b.z - b.d / 2), b.w * BIGS, b.d * BIGS);
+  });
+  Object.keys(SITES).forEach((k) => {
+    const st = SITES[k];
+    g.fillStyle = 'rgba(216,67,47,.2)'; g.strokeStyle = 'rgba(232,80,58,.95)'; g.lineWidth = 3;
+    g.beginPath(); g.arc(bx(st.x), bz(st.z), st.r * BIGS, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#fff'; g.font = 'bold 44px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(k, bx(st.x), bz(st.z));
+  });
+  g.font = 'bold 18px Arial'; g.textAlign = 'center';
+  g.fillStyle = '#5aa0ff'; g.fillText('DÉPART CT', bx(0), bz(-34.5));
+  g.fillStyle = '#e0a040'; g.fillText('DÉPART T', bx(0), bz(34.5));
+  return c;
+}
+function drawBigMap() {
+  if (bigId !== MAP.id) { bigBg = bigBackground(); bigId = MAP.id; }
+  const g = bctx;
+  g.clearRect(0, 0, BIG, BIG); g.drawImage(bigBg, 0, 0);
+  const col = myTeam === 'T' ? '#e0a040' : '#5aa0ff';
+  // coéquipiers seulement, comme sur le radar
+  g.font = 'bold 17px Arial'; g.textAlign = 'center'; g.textBaseline = 'bottom';
+  remotes.forEach((r) => {
+    if (!r.alive || r.team !== myTeam) return;
+    const x = bx(r.g.position.x), y = bz(r.g.position.z);
+    g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 2;
+    g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#fff'; g.fillText(r.e.n, x, y - 11);
+  });
+  const b = S.b;
+  if (b.s === 'planted' || (b.s === 'dropped' && myTeam === 'T')) {
+    const blink = b.s !== 'planted' || Math.floor(performance.now() / 300) % 2 === 0;
+    if (blink) { g.fillStyle = '#ff3030'; g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(bx(b.x), bz(b.z), 10, 0, 7); g.fill(); g.stroke(); }
+  }
+  if (alive()) { // toi : flèche dans le sens du regard
+    g.save(); g.translate(bx(P.x), bz(P.z)); g.rotate(-P.yaw);
+    g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(0, -17); g.lineTo(11, 12); g.lineTo(0, 6); g.lineTo(-11, 12); g.closePath(); g.fill(); g.stroke();
+    g.restore();
+  }
 }
 
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -1235,6 +1293,7 @@ function frame(t) {
     hudAcc += dt;
     if (hudAcc > 0.1) { hudAcc = 0; updateHud(); }
     drawRadar();
+    if (ui.map) drawBigMap();
     // fondus HUD
     if (hitTimer > 0) { hitTimer -= dt; if (hitTimer <= 0) $('hitm').style.opacity = '0'; }
     if (hurtT > 0) { hurtT -= dt; if (hurtT <= 0) { const h = $('hurt'); h.style.transition = 'opacity .7s'; h.style.opacity = '0'; } }
