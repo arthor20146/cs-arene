@@ -579,7 +579,7 @@ function onMsg(m) {
     case 'shoot': onRemoteShot(m); break;
     case 'kill': onKill(m); break;
     case 'hitc': if (m.kill) Snd.kill(); break;
-    case 'got': gotAmmo[m.w] = { mag: m.mag, res: m.res }; Snd.part('in'); break;
+    case 'got': gotAmmo[m.w] = { mag: m.mag, res: m.res }; if (m.sel) pickSel = m.w; Snd.part('in'); break;
     case 'hurt': onHurt(m); break;
     case 'msg': notice(m.text, m.kind === 'err' ? '#ff7b6e' : m.kind === 'bomb' ? '#ff9a3c' : '#ffd65a'); break;
     case 'chat': addChat(m); break;
@@ -629,6 +629,9 @@ function onSnap(m) {
     const given = (id) => { const g = gotAmmo[id]; delete gotAmmo[id]; return g || full(id); };
     if (me.p && me.p !== lastInv.p) { ammo[me.p] = given(me.p); selectWeapon(me.p); }
     if (me.s && me.s !== lastInv.s) { ammo[me.s] = given(me.s); if (!me.p || cur === lastInv.s) selectWeapon(me.s); }
+    // échange contre le même modèle : l'inventaire ne change pas, seulement les munitions
+    Object.keys(gotAmmo).forEach((id) => { if (owned().includes(id)) { ammo[id] = given(id); if (id === cur) reloading = false; } });
+    if (pickSel) { selectWeapon(pickSel); pickSel = null; }           // prise avec E : l'arme passe en main
     if (me.al && !owned().includes(cur)) selectBest();
   }
   lastInv = { p: me.p, s: me.s };
@@ -637,6 +640,7 @@ function onSnap(m) {
 /* ---------- armes au sol ---------- */
 const drops = new Map();
 const gotAmmo = {};
+let pickSel = null;
 function syncDrops(list) {
   const seen = new Set();
   list.forEach((d) => {

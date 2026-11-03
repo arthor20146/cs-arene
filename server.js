@@ -106,14 +106,14 @@ class Room {
     delete p.am[id];
     if (p.inv.cur === id) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
   }
-  takeDrop(p, d) {
-    const w = WEAPONS[d.w];
-    this.drops.splice(this.drops.indexOf(d), 1);
+  takeDrop(p, d, manual) {
+    const w = WEAPONS[d.w], i = this.drops.indexOf(d);
+    if (i >= 0) this.drops.splice(i, 1); // i < 0 : déjà sortie de la liste (plus de maxDrops armes au sol)
     this.dropsDirty = true;
     if (w.slot === 1) p.inv.primary = d.w; else p.inv.secondary = d.w;
     p.inv.cur = d.w;
     p.am[d.w] = [d.mag, d.res];
-    send(p.ws, { type: 'got', w: d.w, mag: d.mag, res: d.res });
+    send(p.ws, { type: 'got', w: d.w, mag: d.mag, res: d.res, sel: manual ? 1 : 0 });
   }
   nearDrop(p, range) {
     let best = null, bd = range;
@@ -129,7 +129,7 @@ class Room {
     if (!d) return;
     const held = WEAPONS[d.w].slot === 1 ? p.inv.primary : p.inv.secondary;
     if (held) this.dropWeapon(p, held, 0.5);
-    this.takeDrop(p, d);
+    this.takeDrop(p, d, true);
   }
   // on passe sur une arme : ramassée seulement si l'emplacement est libre
   autoPickup() {
@@ -336,6 +336,7 @@ class Room {
     } else if (this.phase === 'live') {
       this.tickLive(now);
     } else if (this.phase === 'end') {
+      this.autoPickup(); // le dernier kill termine la manche : son arme reste à prendre
       if (now >= this.phaseEnd) this.startRound();
     } else if (this.phase === 'match') {
       if (now >= this.phaseEnd) this.resetMatch();
@@ -437,7 +438,7 @@ class Room {
         p.lastSt = now;
         p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; p.rl = m.rl ? 1 : 0;
         if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife')) p.inv.cur = m.w;
-        this.noteAmmo(p, m.am);
+        if (m.w === p.inv.cur) this.noteAmmo(p, m.am); // sinon : message parti avant un échange d'arme
         if (!p.alive || this.phase === 'freeze') return;
         p.x = Math.max(-40, Math.min(40, num(m.x, p.x)));
         p.y = Math.max(0, Math.min(8, num(m.y, p.y)));
@@ -465,7 +466,7 @@ class Room {
       case 'act': {
         if (!m.on) { p.act = null; p.pg = 0; return; }
         if (!p.alive) return;
-        if (this.phase === 'freeze') { this.swapDrop(p); break; }
+        if (this.phase === 'freeze' || this.phase === 'end') { this.swapDrop(p); break; }
         if (this.phase !== 'live') return;
         const b = this.bomb;
         if (p.team === 'T' && b.s === 'carried' && b.c === p.id) {

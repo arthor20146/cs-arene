@@ -66,7 +66,7 @@ Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas
 - **T** : poser la bombe sur le site A ou B (maintenir `E` 3,2 s dans la zone rouge). **CT** : empêcher la pose ou désamorcer (10 s, 5 s avec kit).
 - Une manche se termine par élimination, explosion, désamorçage ou fin du temps (victoire CT si la bombe n'est pas posée).
 - Équipement : gilet $650, gilet + casque $1000. Économie : départ $800, victoire +$3250, défaite +$1400 (+$500 par défaite d'affilée, max 4), kills selon l'arme, pose de la bombe +$300.
-- Armes au sol : `Q` jette l'arme en main, et un joueur tué lâche sa meilleure arme, avec ses munitions. On ramasse en passant dessus si l'emplacement est libre, ou avec `E` pour échanger. Acheter une arme alors qu'on en porte une du même type fait tomber l'ancienne, avec ses munitions. Les armes au sol disparaissent à chaque nouvelle manche.
+- Armes au sol : `Q` jette l'arme en main, et un joueur tué lâche sa meilleure arme, avec ses munitions. On ramasse en passant dessus si l'emplacement est libre, ou avec `E` pour échanger. Acheter une arme alors qu'on en porte une du même type fait tomber l'ancienne, avec ses munitions. Les armes au sol disparaissent à chaque nouvelle manche, mais on peut encore les prendre pendant les 8 s de fin de manche : l'arme du dernier ennemi tué se récupère donc aussi, et un survivant la garde à la manche suivante.
 - Mi-temps : les équipes changent de camp. Les survivants gardent leur équipement, les morts repartent avec le pistolet de base.
 
 ## Commandes

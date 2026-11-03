@@ -8,7 +8,7 @@
     tick: 50,            // ms (logique serveur + snapshots)
     freeze: 10,          // s de phase d'achat
     live: 115,           // s de manche
-    end: 6,              // s entre deux manches
+    end: 8,              // s entre deux manches (assez pour aller prendre l'arme du dernier tué)
     plant: 3.2,          // s pour poser la bombe
     defuse: 10,          // s pour désamorcer
     defuseKit: 5,        // s avec kit
