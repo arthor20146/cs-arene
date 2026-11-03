@@ -13,7 +13,7 @@ npm start          # http://localhost:3000
 Plusieurs onglets ou plusieurs PC sur le même réseau peuvent rejoindre la même **salle** (champ « Salle » du menu, ou `?room=mon-code` dans l'URL).
 Le serveur accepte 10 joueurs par salle. Avec un seul joueur, tu es en mode entraînement (la manche ne s'arrête pas à l'élimination).
 
-Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16), `MIN_PLAYERS` (1), `MAP` (carte par défaut si personne n'en choisit : `dust` ou `docks`).
+Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16), `MIN_PLAYERS` (1), `MAP` (carte par défaut si personne n'en choisit : `dust`, `docks`, `medina` ou `cargo`).
 
 ## Rendu réaliste
 
@@ -32,13 +32,18 @@ Tout est généré au chargement, sans fichier image ni son :
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.
 - **Docks** : port industriel avec conteneurs, entrepôt central qui coupe le milieu en deux voies.
 
-- **Médina** : ruelles étroites, impasses, cours et recoins, en fin d'après-midi.
-- **Cargo** : labyrinthe de conteneurs empilés, sous un ciel bas.
+- **Médina** : ville en fin d'après-midi, construite sur trois axes comme une carte de Counter-Strike. À l'ouest, la Longue A mène à la grande place par des portes étroites. Au centre, la rue du milieu donne sur l'escalier du balcon de A et sur la porte B. À l'est, les tunnels couverts débouchent dans la cour du palais (site B), dominée par une terrasse. Une ruelle côté T relie la Longue au milieu, et une liaison relie le milieu aux tunnels.
+- **Cargo** : terminal à conteneurs sous un ciel bas. Le quai ouest mène au site A, l'allée centrale passe sous un portique et longe le hangar, la voie B arrive par l'est. Le site B est plus proche des T que le site A, et ses entrées sont plus serrées. Les conteneurs sont à l'échelle réelle (6 ou 12 m, 1 à 3 étages) et les fusils les traversent. Certains se grimpent depuis une caisse.
 
-Sur Médina et Cargo, des flèches peintes au sol indiquent les sites A et B.
+Sur ces deux cartes, chaque site a trois entrées. Des flèches au sol et des lettres peintes sur les murs indiquent les sites A et B, et les deux départs ne se voient pas.
 
 La carte est choisie dans le menu par le premier joueur qui crée la salle. Les joueurs qui rejoignent ensuite arrivent sur la même carte.
-Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajoute un bouton dans `index.html` (`<button data-m="mon-id">`). Le plus simple est de copier Médina : sa carte est dessinée en texte (`grid`, 40 lignes de 40 caractères, 1 caractère = 2 m), et la légende se trouve au-dessus de `fromGrid`. Il faut laisser libres les zones de départ en haut et en bas, au centre.
+Pour ajouter une carte : copie un bloc dans `MAPS` (fichier `shared.js`) et ajoute un bouton dans `index.html` (`<button data-m="mon-id">`). Deux méthodes sont possibles :
+
+- **Grille**, comme Médina : la carte est dessinée en texte (`grid`, 40 lignes de 40 caractères, 1 caractère = 2 m) et la légende se trouve au-dessus de `fromGrid`. Les éléments plus fins vont dans `extra` : `stairs(...)` pour un escalier (marches de 0,5 m, franchies sans sauter), `B(...)` pour un parapet.
+- **Liste de blocs**, comme Cargo : `B(...)` pour un bâtiment ou une caisse, `K(x, z, longueur, 'x' ou 'z', étages, couleur)` pour un conteneur.
+
+Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas, au centre. Options de décor d'une carte : `arches` (portes et passages couverts), `signs` (lettres sur les murs), `marks` (flèches au sol), `lines` (linge), `awnings` (auvents), `stripes` et `rails` (marquage au sol).
 
 ## Réalisme du combat
 

@@ -424,7 +424,9 @@ const ARCHES = {
   dust: [[-31, 2, 6, 1.5, 3.6, 2.4], [0, 2, 8, 1.5, 3.8, 2.2], [31, 2, 6, 1.5, 3.6, 2.4]],
   docks: [[0, -4, 8, 1.5, 4.5, 0.7]]
 };
-// signalétique peinte sur les murs : x, y, z, normale x, normale z, cellule
+// auvents : x, z du mur, côté où ils s'avancent (+1 ou -1 en z), couleur
+const AWNINGS = { dust: [[-20, 2.77, 1, 0xb5442e], [21, 2.77, 1, 0x2e6b8a], [-9, 1.23, -1, 0xcda034], [9, 1.23, -1, 0x7c3a2e]] };
+// signalétique peinte sur les murs : x, y, z, normale x, normale z, cellule (ou M.signs dans la carte)
 const SIGNS = {
   dust: [[-24, 2.5, 2.76, 0, 1, 'A'], [24, 2.5, 2.76, 0, 1, 'B'], [-13.2, 2.5, -9, 1, 0, 'A'], [13.2, 2.5, -9, -1, 0, 'B']],
   docks: [[-31, 2.5, -3.24, 0, 1, 'A'], [31, 2.5, -3.24, 0, 1, 'B'], [-11.2, 2.5, -24, 1, 0, 'A'], [11.2, 2.5, -22, -1, 0, 'B']]
@@ -448,9 +450,9 @@ function paintGround(M) {
   } else { // marquage au sol, rails, huile
     for (let i = 0; i < 40; i++) blob(r() * S, r() * S, 12 + r() * 46, 'rgba(8,8,10,', 0.5);
     g.setLineDash([60, 40]); g.strokeStyle = 'rgba(214,170,40,.72)'; g.lineWidth = 12;
-    (M.id === 'docks' ? [[-23, -40, -23, 40], [23, -40, 23, 40], [-40, 30, 40, 30]] : []).forEach((l) => { g.beginPath(); g.moveTo(X(l[0]), Y(l[1])); g.lineTo(X(l[2]), Y(l[3])); g.stroke(); });
+    (M.stripes || (M.id === 'docks' ? [[-23, -40, -23, 40], [23, -40, 23, 40], [-40, 30, 40, 30]] : [])).forEach((l) => { g.beginPath(); g.moveTo(X(l[0]), Y(l[1])); g.lineTo(X(l[2]), Y(l[3])); g.stroke(); });
     g.setLineDash([]); g.strokeStyle = 'rgba(70,72,76,.9)'; g.lineWidth = 6;
-    (M.id === 'docks' ? [-37.4, -36.0] : []).forEach((x) => { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), S); g.stroke(); });
+    (M.rails || (M.id === 'docks' ? [-37.4, -36.0] : [])).forEach((x) => { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), S); g.stroke(); });
     g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < 2600; i++) { g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(r() * S, r() * S, 2 + r() * 12, 2 + r() * 12); } g.globalCompositeOperation = 'source-over';
   }
   // ombre de contact au pied de chaque obstacle
@@ -463,7 +465,7 @@ function paintGround(M) {
     g.beginPath(); list.forEach((b) => g.rect(X(b.x - b.w / 2), Y(b.z - b.d / 2), b.w * px, b.d * px)); g.fill();
   });
   g.restore();
-  // fléchage peint au sol dans les labyrinthes : lettre du site et sens à suivre
+  // fléchage peint au sol : lettre du site et sens à suivre
   (M.marks || []).forEach((m) => {
     g.save(); g.translate(X(m[0]), Y(m[1])); g.rotate(Math.atan2(m[3], m[2]));
     g.fillStyle = 'rgba(190,42,30,.6)'; g.strokeStyle = 'rgba(190,42,30,.6)'; g.lineWidth = 0.14 * px;
@@ -599,7 +601,8 @@ function buildWorld(M, force) {
     if (dust) {
       B.box(x, y, z, w, h, d, 3, [[0, 0.26, 'stone', shade(0.7), shade(0.82)], [0.26, h - 0.32, 'plaster', shade(0.9), shade(1)], [h - 0.32, h, 'stone', shade(1), shade(1)]], 'stone', shade(0.9));
       const yb = lin(0x3a2c1e);
-      B.box(x, y - 0.22, z, w + 0.5, 0.22, 0.32, 1.3, [[0, 0.22, 'crate', shade(0.75, yb), shade(1, yb)]], 'crate', yb);
+      const ns = d > w; // le linteau suit la largeur du passage
+      B.box(x, y - 0.22, z, ns ? 0.32 : w + 0.5, 0.22, ns ? d + 0.5 : 0.32, 1.3, [[0, 0.22, 'crate', shade(0.75, yb), shade(1, yb)]], 'crate', yb);
     } else {
       B.box(x, y, z, w, h, d, 2.44, [[0, h, 'ribs', shade(0.5, lin(0xc9a12c)), shade(0.7, lin(0xc9a12c))]], 'ribs', shade(0.4));
       decal(D, x, y + h / 2, z + d / 2 + 0.02, 0, 1, 0.65, 0.65, AT.hazard); decal(D, x - 2, y + h / 2, z + d / 2 + 0.02, 0, 1, 0.65, 0.65, AT.hazard); decal(D, x + 2, y + h / 2, z + d / 2 + 0.02, 0, 1, 0.65, 0.65, AT.hazard);
@@ -641,14 +644,14 @@ function buildWorld(M, force) {
       }
     });
   });
-  (SIGNS[M.id] || []).forEach((s) => decal(D, s[0], s[1], s[2], s[3], s[4], 2.2, 2.2, AT[s[5]]));
+  (M.signs || SIGNS[M.id] || []).forEach((s) => decal(D, s[0], s[1], s[2], s[3], s[4], 2.2, 2.2, AT[s[5]]));
 
   // bâches / auvents (Dust)
   const clothB = new Batch();
   if (M.lines) { // linge entre les façades des ruelles
     const pal = [0xb5442e, 0x2e6b8a, 0xcda034, 0xe6dcc6, 0x7c3a2e, 0x5a7a4a];
     M.lines.forEach((l, i) => {
-      const [x, z, ns] = l, y = 4.5, a = new THREE.Vector3(x - (ns ? 1 : 0), y, z - (ns ? 0 : 1)), b2 = new THREE.Vector3(x + (ns ? 1 : 0), y, z + (ns ? 0 : 1));
+      const [x, z, ns] = l, hl = l[3] || 1, y = 4.5, a = new THREE.Vector3(x - (ns ? hl : 0), y, z - (ns ? 0 : hl)), b2 = new THREE.Vector3(x + (ns ? hl : 0), y, z + (ns ? 0 : hl));
       B.beam('ribsS', a, b2, 0.008, lin(0x2a2a2a), 3);
       for (let k = 0; k < 3; k++) {
         const t = 0.14 + k * 0.28, c = lin(pal[(i * 3 + k) % 6]), px = a.x + (b2.x - a.x) * t, pz = a.z + (b2.z - a.z) * t, w = 0.42, h = 0.55 + k * 0.17;
@@ -656,15 +659,15 @@ function buildWorld(M, force) {
       }
     });
   }
+  (M.awnings || AWNINGS[M.id] || []).forEach((a) => {
+    const [x, z, s, c] = a, w = 3.6, col = lin(c);
+    for (let i = 0; i < 6; i++) {
+      const cc = i % 2 ? col : lin(0xe6dcc6), xx = x - w / 2 + i * w / 6;
+      clothB.quad('c', [xx, 3.3, z], [w / 6, 0, 0], [0, -0.55, s * 1.25], [0, 0.83, s * 0.55], 0, 0, 1, 1, cc, shade(0.85, cc));
+    }
+    [-1, 1].forEach((k) => B.beam('ribsS', new THREE.Vector3(x + k * w / 2, 2.75, z + s * 1.25), new THREE.Vector3(x + k * w / 2, 3.25, z), 0.02, lin(0x3a3a3a), 5));
+  });
   if (M.id === 'dust') {
-    [[-20, 2.77, 1, 0xb5442e], [21, 2.77, 1, 0x2e6b8a], [-9, 1.23, -1, 0xcda034], [9, 1.23, -1, 0x7c3a2e]].forEach((a) => {
-      const [x, z, s, c] = a, w = 3.6, col = lin(c);
-      for (let i = 0; i < 6; i++) {
-        const cc = i % 2 ? col : lin(0xe6dcc6), xx = x - w / 2 + i * w / 6;
-        clothB.quad('c', [xx, 3.3, z], [w / 6, 0, 0], [0, -0.55, s * 1.25], [0, 0.83, s * 0.55], 0, 0, 1, 1, cc, shade(0.85, cc));
-      }
-      [-1, 1].forEach((k) => B.beam('ribsS', new THREE.Vector3(x + k * w / 2, 2.75, z + s * 1.25), new THREE.Vector3(x + k * w / 2, 3.25, z), 0.02, lin(0x3a3a3a), 5));
-    });
     // sacs de sable au pied des murs
     const sand = new THREE.SphereGeometry(1, 10, 6), lc = lin(0xb6a27c);
     [[-20, 3.45], [-20.8, 3.45], [-19.2, 3.45], [20, 3.45], [20.8, 3.45], [19.2, 3.45], [-3.5, -7], [3.5, -7]].forEach((p, i) => {
