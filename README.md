@@ -27,6 +27,14 @@ Tout est généré au chargement, sans fichier image ni son :
 
 **Qualité graphique** (menu et pause) : `Basse` (sans ombres, pour les petits PC), `Moyenne`, `Haute` (occlusion ambiante, halo lumineux, anticrénelage). Les textures plus fines de `Haute` s'appliquent au prochain chargement de la page.
 
+## Animations (pose, désamorçage, recharge, mort)
+
+- **Pose de la bombe** (`E` maintenu) : l'arme descend hors du champ, la bombe monte du bas de l'écran et les deux mains tapent le code, avec un bip à chaque pression et une LED de plus en plus rapide. Les autres joueurs voient le soldat s'accroupir, se pencher et poser la bombe devant lui.
+- **Désamorçage** : une main tape sur le pavé, l'autre travaille sur les fils. Avec le kit, une pince s'ouvre et se ferme (son de coupe).
+- **Recharge** : l'arme se redresse, le chargeur usagé tombe de la main, qui va chercher le suivant à la ceinture, le remonte et le claque. Les soldats distants font le même geste (cartouche par cartouche aux fusils à pompe).
+- **Mort** : les genoux plient, les bras partent en l'air, puis le corps bascule (tête renversée sur une balle à la tête) et rebondit au sol. À la première personne, la caméra tombe et bascule du côté opposé au tireur avant de passer en spectateur (≈ 1,8 s).
+- Le serveur envoie dans le snapshot `q` (1 pose, 2 désamorçage), `g` (progression) et `kt` (kit) ; la bombe est posée 0,55 m devant le joueur.
+
 ## Cartes
 
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.

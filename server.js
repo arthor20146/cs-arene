@@ -323,6 +323,13 @@ class Room {
     delete p.am[item];                         // arme neuve : munitions pleines
   }
 
+  // la bombe est posée 0,55 m devant le joueur (à ses pieds si un mur gêne)
+  bombSpot(p) {
+    const x = p.x - Math.sin(p.yaw) * 0.55, z = p.z - Math.cos(p.yaw) * 0.55;
+    const inWall = this.map.boxes.some((b) => b.h > 0.4 && Math.abs(x - b.x) < b.w / 2 + 0.15 && Math.abs(z - b.z) < b.d / 2 + 0.15);
+    return inWall ? { x: p.x, z: p.z } : { x, z };
+  }
+
   /* ---------- boucle ---------- */
   tick() {
     const now = Date.now();
@@ -367,7 +374,8 @@ class Room {
           const SITES = this.map.sites;
           const site = Object.keys(SITES).find((k) => Math.hypot(p.x - SITES[k].x, p.z - SITES[k].z) <= SITES[k].r);
           if (!site) { p.act = null; p.pg = 0; return; }
-          b.s = 'planted'; b.c = null; b.x = p.x; b.y = 0; b.z = p.z; b.site = site; b.at = now + CFG.bombTime * 1000;
+          const bp = this.bombSpot(p);
+          b.s = 'planted'; b.c = null; b.x = bp.x; b.y = 0; b.z = bp.z; b.site = site; b.at = now + CFG.bombTime * 1000;
           p.money = Math.min(CFG.maxMoney, p.money + 300);
           p.act = null; p.pg = 0;
           this.bcast({ type: 'msg', text: 'La bombe a été posée sur le site ' + site, kind: 'bomb' });
@@ -407,7 +415,8 @@ class Room {
     else te = Math.max(0, (this.phaseEnd - now) / 1000);
     const pl = this.all().map((p) => ({
       i: p.id, n: p.name, t: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), r: r2(p.yaw), p: r2(p.pitch),
-      c: p.c, w: p.inv.cur, a: p.alive ? 1 : 0, k: p.k, d: p.d, h: p.helmet ? 1 : 0, l: p.rl ? 1 : 0
+      c: p.c, w: p.inv.cur, a: p.alive ? 1 : 0, k: p.k, d: p.d, h: p.helmet ? 1 : 0, l: p.rl ? 1 : 0,
+      q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0
     }));
     const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {

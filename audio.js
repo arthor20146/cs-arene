@@ -159,6 +159,11 @@ window.Snd = (function () {
       ringG.gain.cancelScheduledValues(t); ringG.gain.setValueAtTime(0.032 * k, t); ringG.gain.exponentialRampToValueAtTime(0.0001, t + d);
     },
     beep(v, pan) { tone({ wave: 'square', freq: 1200, dur: 0.09, vol: 0.14 * (v == null ? 1 : v), pan, wet: 0.2 }); },
+    // pavé numérique de la bombe et pince qui coupe le fil
+    keypad() { tone({ wave: 'square', freq: 1750 + Math.random() * 250, dur: 0.035, vol: 0.05 }); burst({ freq: 2800, dur: 0.012, vol: 0.1, q: 4 }); },
+    snip() { burst({ freq: 4200, dur: 0.025, vol: 0.22, q: 6, type: 'highpass' }); tone({ wave: 'triangle', freq: 2400, to: 1500, dur: 0.05, vol: 0.06 }); },
+    magdrop() { burst({ freq: 700, dur: 0.05, vol: 0.2, q: 2 }); tone({ wave: 'triangle', freq: 200, to: 120, dur: 0.05, vol: 0.1 }); },
+    thud(v, pan, x) { x = x || {}; burst({ freq: 180, sweep: 70, dur: 0.16, vol: 0.5 * (v == null ? 1 : v), q: 0.7, type: 'lowpass', pan, lp: x.lp, delay: x.delay }); burst({ freq: 900, dur: 0.05, vol: 0.18 * (v == null ? 1 : v), q: 1.2, pan, lp: x.lp, delay: x.delay }); },
     plant() { [0, 0.14, 0.28].forEach((d, i) => tone({ wave: 'square', freq: [500, 800, 1200][i], dur: 0.1, vol: 0.14, delay: d })); },
     defused() { tone({ freq: 600, dur: 0.15, vol: 0.25 }); tone({ freq: 900, dur: 0.3, vol: 0.25, delay: 0.15 }); },
     explode(v, x) {

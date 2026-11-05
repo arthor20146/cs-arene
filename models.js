@@ -7,6 +7,7 @@ const C = {
   black: lin(0x17181a), gun: lin(0x26282b), dark: lin(0x34373b), steel: lin(0x7c8086), silver: lin(0xb8bcc2), brass: lin(0xa98438),
   tan: lin(0x9a8560), od: lin(0x47503a), fde: lin(0x8a7a5a), awp: lin(0x3a4f3a), wood: lin(0xffffff), glass: lin(0x28384a), rub: lin(0x101010)
 };
+const CS_W = (id) => (window.CS && CS.WEAPONS[id]) || {};
 const M = {};
 function mats() {
   if (M.metal) return M;
@@ -316,7 +317,7 @@ const segCache = {};
 const segOf = (t) => segCache[t] || (segCache[t] = segGeos(t));
 
 const SH_R = new V(0.215, 0.43, 0), SH_L = new V(-0.215, 0.43, 0), POLE_R = new V(0.55, -0.8, 0.25), POLE_L = new V(-0.6, -0.8, 0.1);
-const _a = new V(), _b = new V(), _c = new V(), _d = new V(), _e = new V(), _p = new V(), DOWN = new V(0, -1, 0), _q = new THREE.Quaternion(), _qi = new THREE.Quaternion();
+const _a = new V(), _b = new V(), _c = new V(), _d = new V(), _e = new V(), _f = new V(), _g = new V(), _h = new V(), _e2 = new V(), _p = new V(), DOWN = new V(0, -1, 0), _q = new THREE.Quaternion(), _qi = new THREE.Quaternion();
 const LEN = 0.285;
 // bras à deux segments : place le coude pour que la main atteigne la cible
 function solve(upper, fore, S, H, pole) {
@@ -358,7 +359,8 @@ class Rig {
     this.tL = seg('thigh', this.pelvis, 'l', -0.1, -0.03, 0); this.sL = seg('shin', this.tL, 'l', 0, -0.44, 0);
     this.gunMount = new THREE.Group(); this.spine.add(this.gunMount);
     this.gun = null; this.gunId = null; this.cls = 'pistol';
-    this.ph = 0; this.c = 0; this.kick = 0; this.dead = 0; this.deadDir = 1; this.deadSide = 0; this.rl = 0; this.rnd = Math.random();
+    this.ph = 0; this.c = 0; this.kick = 0; this.dead = 0; this.deadDir = 1; this.deadSide = 0; this.deadHs = false; this.rl = 0; this.rnd = Math.random();
+    this.actK = 0; this.actT = 0; this.actKind = 1; this.rlT = 0;
   }
   setGun(id) {
     if (this.gun) { this.gunMount.remove(this.gun); this.gun = null; }
@@ -371,65 +373,115 @@ class Rig {
   }
   muzzle(v) { return this.gun.localToWorld(v.copy(this.info.muzzle)); }
   update(dt, s) {
-    // s : vitesse (m/s), fw et sd (direction locale -1..1), crouch 0/1, pitch, reload
+    // s : vitesse (m/s), fw et sd (direction locale -1..1), crouch 0/1, pitch, reload, rlDur,
+    //     act (0 rien, 1 pose la bombe, 2 désamorce), pg (progression), tx/tz (cible au sol, repère du joueur, avant = -z)
     const k = 1 - Math.exp(-12 * dt);
-    this.c += ((s.crouch ? 1 : 0) - this.c) * k;
+    const act = s.act | 0;
+    this.actK += ((act ? 1 : 0) - this.actK) * (1 - Math.exp(-9 * dt));
+    if (act) { this.actT += dt; this.actKind = act; } else if (this.actK < 0.01) this.actT = 0;
+    const A = this.actK;
+    this.c += (((s.crouch || act) ? 1 : 0) - this.c) * k;
     this.kick *= Math.exp(-14 * dt);
     if (s.dead) return this.updDead(dt);
-    this.dead = 0; this.root.rotation.set(0, 0, 0); this.root.position.y = 0; if (this.gun) this.gun.visible = true;
-    const v = Math.min(s.speed, 7), mv = Math.min(1, v / 2.5);
+    this.dead = 0; this.root.rotation.set(0, 0, 0); this.root.position.y = 0;
+    this.head.rotation.y = 0; this.head.rotation.z = 0;
+    if (this.gun) this.gun.visible = A < 0.55;       // les deux mains sont prises : l'arme est portée dans le dos
+    const v = Math.min(s.speed, 7), mv = Math.min(1, v / 2.5) * (1 - A);
     this.ph += dt * (v * 2.25 + (v > 0.1 ? 1.2 : 0)) * (s.fw < -0.3 ? -1 : 1);
     const sw = Math.sin(this.ph), sw2 = Math.sin(this.ph + Math.PI), c = this.c;
     const amp = 0.58 * mv * (1 - 0.45 * c) * (0.6 + 0.4 * Math.abs(s.fw)), knee = (a) => Math.max(0, Math.sin(a - 0.6)) * 0.95 * mv;
     const side = s.sd * mv * 0.14;
-    const y0 = 0.95 - 0.42 * c;
+    const y0 = 0.95 - 0.42 * c - 0.1 * A;
     this.pelvis.position.y = y0 + Math.abs(Math.cos(this.ph)) * 0.024 * mv - 0.012 * mv;
     this.pelvis.rotation.y = sw * 0.08 * mv;
     this.pelvis.rotation.z = -side * 0.4;
-    const cTh = 1.32 * c, cSh = -2.1 * c;
+    const cTh = (1.32 + 0.25 * A) * c, cSh = (-2.1 - 0.2 * A) * c;
     this.tR.rotation.set(cTh * (1) + sw * amp, 0, -0.03 - side); this.sR.rotation.x = cSh - knee(this.ph + 1.6);
     this.tL.rotation.set(cTh * 0.8 + sw2 * amp, 0, 0.03 - side); this.sL.rotation.x = cSh * 0.72 - knee(this.ph + 1.6 + Math.PI);
     if (c > 0.01) { this.tL.rotation.z = 0.03 - 0.1 * c; this.tR.rotation.z = -0.03 + 0.1 * c; }
-    const lean = 0.08 + 0.05 * mv + 0.3 * c;
-    const pit = GFX.clamp(s.pitch, -1.2, 1.2);
+    const lean = 0.08 + 0.05 * mv + 0.3 * c + 0.6 * A;
+    const pit = GFX.clamp(s.pitch, -1.2, 1.2) * (1 - A);
     // penché vers l'avant (-z) : rotation x négative ; regarde en haut : pitch positif = buste relevé
     this.spine.rotation.set(-lean + pit * 0.45, -this.pelvis.rotation.y, 0);
-    this.head.rotation.x = pit * 0.45 + lean * 0.6;
-    // bras : pose de tir
-    const r = s.reload ? 1 : 0;
+    this.head.rotation.x = pit * 0.45 + lean * 0.6 - 0.45 * A;
+    // rechargement : minuteur propre à ce soldat
+    const rlOn = s.reload && A < 0.5;
+    this.rlT = rlOn ? this.rlT + dt : 0;
+    const r = rlOn ? 1 : 0;
     this.rl += (r - this.rl) * k; const rl = this.rl, K = this.kick;
+    const shell = this.gunId && CS_W(this.gunId).shell;
+    const dur = Math.max(0.8, s.rlDur || 2), u = shell ? 0 : (this.rlT / dur) % 1;
     // l'arme suit le regard, les mains suivent l'arme (cinématique inverse)
-    this.gunMount.rotation.x = pit * 0.55 - rl * 0.5 - K * 0.09 + lean * 0.9;
+    let slap = 0;
+    if (!shell && rlOn && u > 0.78 && u < 0.9) slap = Math.sin((u - 0.78) / 0.12 * Math.PI);
+    this.gunMount.rotation.set(pit * 0.55 - rl * 0.5 - K * 0.09 + lean * 0.9 * (1 - A) + slap * 0.1, 0, rl * (shell ? 0.12 : 0.34));
     this.gunMount.position.set(0, -rl * 0.05, K * 0.05);
     this.gunMount.updateMatrix();
     if (this.gun) this.gun.updateMatrix();
-    if (this.cls === 'knife') {
-      solve(this.uR, this.fR, SH_R, this.toSpine(_a.copy(this.info.handR)), POLE_R);
+    // mains : cibles dans le repère du buste
+    const hR = _a.copy(this.info.handR), hL = _b.copy(this.info.handL);
+    this.toSpine(hR); this.toSpine(hL);
+    if (rl > 0.01) {
+      const P0 = _c.set(-0.14, 0.1, -0.14);                                  // pochette de chargeurs, à la ceinture
+      const mw = this.toSpine(_g.copy(this.info.handR).add(_h.set(0, 0.02, -0.07)));  // puits de chargeur
+      const sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+      let tgt;
+      if (shell) {                                                           // une cartouche à la fois : pochette -> arme
+        const q = (this.rlT % 0.5) / 0.5;
+        tgt = _e2.copy(mw).lerp(P0, Math.pow(Math.sin(q * Math.PI), 0.8));
+      } else if (u < 0.15) tgt = _e2.copy(hL).lerp(mw, sm(u / 0.15));
+      else if (u < 0.32) tgt = _e2.copy(mw).add(_h.set(-0.02, -0.1 * sm((u - 0.15) / 0.17), 0.0));  // le chargeur sort
+      else if (u < 0.42) tgt = _e2.copy(mw).add(_h.set(-0.02, -0.1, 0)).lerp(P0, sm((u - 0.32) / 0.1));
+      else if (u < 0.56) tgt = _e2.copy(P0).add(_h.set(0, Math.sin((u - 0.42) * 40) * 0.008, 0));        // il en saisit un autre
+      else if (u < 0.78) tgt = _e2.copy(P0).lerp(mw, sm((u - 0.56) / 0.22));
+      else if (u < 0.9) tgt = _e2.copy(mw).add(_h.set(0, slap * -0.025, 0));                              // il le claque
+      else tgt = _e2.copy(mw).lerp(hL, sm((u - 0.9) / 0.1));
+      hL.lerp(tgt, rl);
+    }
+    if (A > 0.01) {
+      const sx = this.spine.rotation.x, cs = Math.cos(sx), sn = Math.sin(sx);
+      const dX = s.tx || 0, dY = 0.07 - (this.pelvis.position.y + 0.06), dZ = s.tz != null ? s.tz : -0.55;
+      const ty = dY * cs + dZ * sn, tz = -dY * sn + dZ * cs, t = this.actT;
+      const tapR = this.actKind === 1 ? Math.abs(Math.sin(t * 9)) * 0.035 : 0.014 * Math.sin(t * 7);
+      const tapL = this.actKind === 2 ? Math.abs(Math.sin(t * 9 + 1.6)) * 0.035 : 0;
+      const wob = this.actKind === 2 ? Math.cos(t * 5) * 0.012 : 0;
+      hR.lerp(_f.set(dX + 0.06 + wob, ty + tapR, tz), A);
+      hL.lerp(_f.set(dX - 0.1, ty + tapL, tz + 0.05), A);
+    }
+    if (this.cls === 'knife' && A < 0.02 && rl < 0.01) {
+      solve(this.uR, this.fR, SH_R, hR, POLE_R);
       this.uL.rotation.set(sw2 * 0.35 * mv + 0.2, 0, 0.12); this.fL.rotation.set(0.5, 0, 0);
     } else {
-      solve(this.uR, this.fR, SH_R, this.toSpine(_a.copy(this.info.handR)), POLE_R);
-      this.toSpine(_b.copy(this.info.handL));
-      if (rl > 0.01) _b.lerp(_c.set(-0.14, 0.1 + Math.sin(this.ph * 0 + performance.now() * 0.006) * 0.03, -0.14), rl);
-      solve(this.uL, this.fL, SH_L, _b, POLE_L);
+      solve(this.uR, this.fR, SH_R, hR, POLE_R);
+      solve(this.uL, this.fL, SH_L, hL, POLE_L);
     }
   }
   toSpine(v) { return v.applyMatrix4(this.gun.matrix).applyMatrix4(this.gunMount.matrix); }
   updDead(dt) {
     if (this.gun) this.gun.visible = false;
-    this.dead = Math.min(1, this.dead + dt * 1.7);
-    const t = this.dead, e = t * t * (3 - 2 * t), bounce = t > 0.75 ? Math.sin((t - 0.75) * 12.5) * 0.03 * (1 - t) * 4 : 0;
-    const dir = this.deadDir, y = 0.13;
-    this.root.rotation.x = dir * 1.5 * e + bounce * dir;
-    this.root.rotation.z = this.deadSide * 0.35 * e;
-    this.root.position.y = 0.11 * e;
-    this.pelvis.position.y += (0.92 - 0.1 * e + y * e - this.pelvis.position.y) * Math.min(1, dt * 10);
-    this.pelvis.position.y -= e * 0.03;
-    const l = (o, x, z) => { o.rotation.x += (x - o.rotation.x) * Math.min(1, dt * 7); o.rotation.z += (z - o.rotation.z) * Math.min(1, dt * 7); };
-    const R = this.rnd;
-    l(this.uR, -0.3 + R * 1.2, 0.3 + R * 1.2); l(this.fR, 0.2 + R, 0); l(this.uL, 0.5 - R * 1.4, -0.6 - R * 0.6); l(this.fL, 0.4, 0);
-    l(this.tR, 0.1 + R * 0.5, -0.12); l(this.sR, -0.5 * R, 0); l(this.tL, 0.5 - R * 0.4, 0.16); l(this.sL, -0.4 - R * 0.5, 0);
-    l(this.spine, dir > 0 ? -0.06 : 0.1, 0); this.head.rotation.x += (dir * -0.2 - this.head.rotation.x) * Math.min(1, dt * 5);
-    this.head.rotation.y += (R - 0.5 - this.head.rotation.y) * Math.min(1, dt * 5);
+    this.dead = Math.min(1, this.dead + dt * (this.deadHs ? 1.7 : 1.25));
+    const t = this.dead, sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+    const buck = sm(t / 0.4), fall = sm((t - 0.18) / 0.82), dir = this.deadDir, R = this.rnd;
+    const bend = buck * (1 - fall), bounce = t > 0.78 ? Math.sin((t - 0.78) * 14) * 0.035 * (1 - t) * 4 : 0;
+    // les genoux plient, puis le corps bascule autour des pieds et rebondit au sol
+    this.root.rotation.x = dir * 1.52 * Math.pow(fall, 1.5) + bounce * dir;
+    this.root.rotation.z = this.deadSide * 0.35 * fall;
+    this.root.position.y = 0.11 * fall;
+    this.pelvis.position.y = 0.95 - 0.4 * bend - 0.03 * fall;
+    this.pelvis.rotation.set(0, 0, 0);
+    this.tR.rotation.set(1.25 * bend + (0.1 + R * 0.5) * fall, 0, -0.12 * fall);
+    this.sR.rotation.x = -2.0 * bend - 0.5 * R * fall;
+    this.tL.rotation.set(0.9 * bend + (0.5 - R * 0.4) * fall, 0, 0.16 * fall);
+    this.sL.rotation.x = -1.7 * bend - (0.4 + R * 0.5) * fall;
+    // bras : lancés en l'air au moment de l'impact, puis retombent
+    this.uR.rotation.set(-0.9 * bend + (-0.3 + R * 1.2) * fall, 0, 0.45 * bend + (0.3 + R * 1.2) * fall);
+    this.fR.rotation.set(0.5 * bend + (0.2 + R) * fall, 0, 0);
+    this.uL.rotation.set(-0.7 * bend + (0.5 - R * 1.4) * fall, 0, -0.5 * bend + (-0.6 - R * 0.6) * fall);
+    this.fL.rotation.set(0.6 * bend + 0.4 * fall, 0, 0);
+    this.spine.rotation.set(dir > 0 ? -0.45 * bend - 0.06 * fall : 0.3 * bend + 0.1 * fall, 0, 0);
+    // balle dans la tête : la tête part en arrière
+    this.head.rotation.x = (this.deadHs ? 0.75 : 0.15) * bend - dir * 0.2 * fall;
+    this.head.rotation.y = (R - 0.5) * fall; this.head.rotation.z = (this.deadHs ? (R - 0.5) * 0.5 * bend : 0);
     return t >= 1;
   }
 }

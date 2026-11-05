@@ -46,7 +46,7 @@ let joinInfo = { name: '', room: 'main', team: 'auto', map: 'dust' };
 const S = { ph: 'wait', te: 0, rd: 0, sc: { T: 0, CT: 0 }, b: { s: 'none', x: 0, z: 0 }, pl: new Map(), me: null, recv: 0, names: new Map() };
 const ui = { buy: false, chat: false, board: false, map: false };
 const K = {};
-const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, recP: 0, recY: 0, burst: 0, ground: true, crouch: 0, shake: 0, bob: 0, stepD: 0, tag: 0, landT: 0, stam: 1, dip: 0, dipV: 0, roll: 0, swayX: 0, swayY: 0, mouseX: 0, mouseY: 0, sunK: 1, sunT: 1, deadT: 0 };
+const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, recP: 0, recY: 0, burst: 0, ground: true, crouch: 0, shake: 0, bob: 0, stepD: 0, tag: 0, landT: 0, stam: 1, dip: 0, dipV: 0, roll: 0, swayX: 0, swayY: 0, mouseX: 0, mouseY: 0, sunK: 1, sunT: 1, deadT: 0, deadSide: 1, deadHs: false, deadDir: 1 };
 let cur = 'glock', lastCur = 'knife', ammo = {}, reloading = false, rlEnd = 0, rlDur = 1, rlStage = 0, rlEmpty = false, rlNext = 0, nextShot = 0, swapT = 0;
 let fireHeld = false, fireLatch = false, scoped = false, rmbHeld = false, aiming = false, adsT = 0, needRefill = false, lastInv = { p: null, s: null };
 let specId = null, banTimer = 0, noticeTimer = 0, hitTimer = 0, dmgTimer = 0;
@@ -141,9 +141,15 @@ function spatial(x, y, z) {
 
 function updateBomb(dt, now) {
   const b = S.b;
+  let ghost = null;
+  if (b.s === 'carried') remotes.forEach((r) => { if (r.alive && r.e.q === 1) ghost = r; });
   if (b.s === 'planted' || b.s === 'dropped') {
     if (!bombMesh.visible) bombMesh.rotation.y = b.x * 7 % 6.28;
     bombMesh.visible = true; bombMesh.position.set(b.x, 0.01, b.z);
+  } else if (ghost) {       // un autre joueur est en train de poser la bombe devant lui
+    const y = ghost.g.rotation.y, gp = ghost.rig.actK;
+    bombMesh.visible = gp > 0.5; bombMesh.rotation.y = y;
+    bombMesh.position.set(ghost.g.position.x - Math.sin(y) * 0.55, 0.01, ghost.g.position.z - Math.cos(y) * 0.55);
   } else bombMesh.visible = false;
   if (b.s === 'planted') {
     const left = Math.max(0, S.te - (now - S.recv) / 1000);
@@ -236,7 +242,14 @@ function updateRemotes(dt) {
     }
     if (r.rig) {
       r.rig.helmet.visible = !!e.h;
-      r.rig.update(dt, { speed: r.alive ? r.vs : 0, fw: r.fw, sd: r.sd, crouch: e.c, pitch: e.p || 0, reload: e.l, dead: !r.alive });
+      const q = r.alive ? (e.q | 0) : 0;
+      let tx = 0, tz = -0.55;
+      if (q === 2) { // bombe posée : on la vise depuis la position du soldat
+        const dx = S.b.x - r.g.position.x, dz = S.b.z - r.g.position.z, yy = r.g.rotation.y;
+        tx = dx * Math.cos(yy) - dz * Math.sin(yy); tz = dx * Math.sin(yy) + dz * Math.cos(yy);
+      }
+      r.rig.update(dt, { speed: r.alive ? r.vs : 0, fw: r.fw, sd: r.sd, crouch: e.c, pitch: e.p || 0, reload: e.l, rlDur: (WEAPONS[r.w] || {}).rl, dead: !r.alive, act: q, pg: e.g || 0, tx, tz });
+      if (q) { r.tapT = (r.tapT || 0) - dt; if (r.tapT <= 0) { r.tapT = 0.35; const sp = spatial(r.g.position.x, 0.5, r.g.position.z); if (sp.d < 25) Snd.beep(sp.v * 0.35, sp.pan); } }
       if (!r.alive && r.rig.dead >= 1 && !r.pooled) { // flaque de sang sous le corps
         r.pooled = true;
         fx.bloodDecal(_l.set(r.g.position.x, r.g.position.y + 0.015, r.g.position.z), UP, 1.5 + Math.random() * 0.8);
@@ -258,6 +271,7 @@ const VMPOS = {
   knife:   { p: [0.18, -0.16, -0.36], ads: 0.3, elR: [0.36, -0.46, 0.1], elL: [-0.3, -0.6, 0.2] }
 };
 const vmPivot = new THREE.Group(); vmScene.add(vmPivot);
+let actFp = 0, actKindFp = 1, actTFp = 0, tapN = 0, snipN = 0, rlDropped = false, rlDropNow = false, vmBomb = null, vmCutter = null, dropMag = null;
 let V = null, armR = null, armL = null, armTeam = null, vmFlash = null, vmKick = 0, vmSlide = 0, boltT = 0, slash01 = 0;
 const flashTex = (function () {
   const S = 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
@@ -290,9 +304,31 @@ function buildVM(id) {
   Snd.part('draw');
 }
 const _h = new THREE.Vector3(), _e = new THREE.Vector3(), _h2 = new THREE.Vector3();
+// objets de la vue subjective : bombe tenue en main, pince du kit, chargeur qui tombe
+vmBomb = Models.bomb(); vmBomb.visible = false; vmBomb.scale.setScalar(1.25); vmScene.add(vmBomb);
+{
+  const mk = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.4 });
+  vmCutter = new THREE.Group();
+  vmCutter.jaw = [0, 1].map((i) => {
+    const j = new THREE.Group(), blade = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.01, 0.07), mk(0x9aa0a6)), grip = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.014, 0.1), mk(0xb02a22));
+    blade.position.z = -0.035; grip.position.z = 0.05; j.add(blade, grip); vmCutter.add(j); return j;
+  });
+  vmCutter.visible = false; vmScene.add(vmCutter);
+  dropMag = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.11, 0.045), mk(0x1d1f22)); dropMag.visible = false; dropMag.vel = new THREE.Vector3(); vmScene.add(dropMag);
+}
+const _bR = new THREE.Vector3(), _bL = new THREE.Vector3(), _pw = new THREE.Vector3();
+const sstep = (x) => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
 function poseVM(dt, now, showVM) {
   const on = showVM && !scoped;
-  vmPivot.visible = on; if (armR) { armR.visible = on; armL.visible = on && cur !== 'knife'; }
+  const A = actFp, ease = sstep(A);
+  vmPivot.visible = on; if (armR) { armR.visible = on; armL.visible = on && (cur !== 'knife' || A > 0.02); }
+  vmBomb.visible = on && A > 0.01;
+  vmCutter.visible = vmBomb.visible && actKindFp === 2 && !!(S.me && S.me.k);
+  // chargeur jeté : petite chute
+  if (dropMag.visible) {
+    dropMag.vel.y -= 5 * dt; dropMag.position.addScaledVector(dropMag.vel, dt); dropMag.rotation.x += dt * 5; dropMag.rotation.z += dt * 3;
+    if (dropMag.position.y < -0.6 || !on) dropMag.visible = false;
+  }
   if (!on || !V) return;
   const w = WEAPONS[cur], inf = V.info, pos = V.pos;
   // balancement de marche, respiration, inertie de la souris
@@ -304,20 +340,25 @@ function poseVM(dt, now, showVM) {
   const br = Math.sin(now * 1.3) * 0.0016 * a;
   const ax = pos.p[0] + (-inf.sight.x - pos.p[0]) * adsT, ay = pos.p[1] + (-inf.sight.y - pos.p[1]) * adsT, az = pos.p[2] + (-pos.ads - inf.sight.z - pos.p[2]) * adsT;
   const swp = swapT > 0 ? swapT / 0.42 : 0, swe = swp * swp;
-  let rx = 0, rz = 0, ry = 0, ox = 0, oy = 0, oz = 0, magY = 0, magVis = true, lhx = 0, lhy = 0, lhz = 0, handK = 0;
+  let rx = 0, rz = 0, ry = 0, ox = 0, oy = 0, oz = 0, magY = 0, magVis = true, lhy = 0, hk = 0, pf = 0;
   V.pump.position.z = 0; V.slide.position.z = 0;
   if (reloading) {
     const T = clamp(1 - (rlEnd - now) / Math.max(0.1, rlDur), 0, 1);
     const inn = Math.min(1, T / 0.14), oun = Math.min(1, (1 - T) / 0.14), e = inn * oun * (2 - inn * oun) * 1;
     if (w.shell) {
-      rx = 0.28 * e; rz = -0.32 * e; oy = -0.03 * e; handK = 1;
+      rx = 0.28 * e; rz = -0.32 * e; oy = -0.03 * e; hk = e;
       const q = (T * 7) % 1; lhy = -0.05 - Math.sin(q * 3.14) * 0.09;
     } else {
-      rx = 0.2 * e; rz = -0.46 * e; ry = 0.14 * e; oy = -0.03 * e; ox = -0.02 * e;
+      // l'arme monte vers le centre et s'incline : on voit le puits de chargeur et la main qui travaille
+      rx = 0.38 * e; rz = -0.5 * e; ry = 0.34 * e; oy = 0.055 * e; ox = -0.075 * e; oz = 0.02 * e;
       if (T > 0.16 && T < 0.34) magY = -((T - 0.16) / 0.18) * 0.34;
       else if (T >= 0.34 && T < 0.52) magVis = false;
       else if (T >= 0.52 && T < 0.7) magY = -(1 - (T - 0.52) / 0.18) * 0.3;
-      if (T > 0.14 && T < 0.8) handK = 1;
+      hk = clamp(Math.min(T / 0.14, (0.86 - T) / 0.1), 0, 1);
+      // la main jette le chargeur, va chercher le suivant à la ceinture et le remonte
+      if (T >= 0.34 && T < 0.52) pf = sstep((T - 0.34) / 0.08) * (1 - sstep((T - 0.45) / 0.07));
+      if (T > 0.7 && T < 0.82) { const q = Math.sin((T - 0.7) / 0.12 * Math.PI); rx += 0.07 * q; oy -= 0.012 * q; }   // il claque le chargeur
+      if (T >= 0.34 && !rlDropped) { rlDropped = true; rlDropNow = true; }
       if (rlStage === 0 && T > 0.16) { rlStage = 1; Snd.part('out'); }
       if (rlStage === 1 && T > 0.66) { rlStage = 2; Snd.part('in'); }
       if (rlEmpty && rlStage === 2 && T > 0.8) { rlStage = 3; Snd.part('bolt'); }
@@ -333,17 +374,57 @@ function poseVM(dt, now, showVM) {
   if (cur === 'knife') { rx -= slash01 * 1.1; ry = 0.6 * slash01; oz = -slash01 * 0.14; ox = -slash01 * 0.1; slash01 *= Math.exp(-9 * dt); }
   vmSlide *= Math.exp(-26 * dt);
   if (w.cls === 'pistol' && !w.bolt) V.slide.position.z += vmSlide * 0.03 + (ammo[cur] && ammo[cur].mag === 0 ? 0.03 : 0);
+  // pose / désamorçage : l'arme descend et bascule hors du champ, les deux mains passent sur la bombe
+  oy -= 0.5 * ease; rx += 0.9 * ease; ox -= 0.05 * ease;
+  V.group.visible = ease < 0.92;
   vmPivot.position.set(ax + bx + ox + P.swayX * 0.6 - P.roll * 0.3, ay + by + br + oy - swe * 0.3 - P.dip * 0.5 + P.swayY * 0.4, az + oz + vmKick * 0.042);
   vmPivot.rotation.set(rx + vmKick * 0.06 * (1 - adsT * 0.6) + swe * 0.9 + P.swayY * 0.9, ry + P.swayX * 1.3, rz + P.swayX * 0.8 - P.roll * 1.6);
   V.mag.position.y = magY; V.mag.visible = magVis;
   vmPivot.updateMatrixWorld(true);
+  // la bombe monte du bas de l'écran, clavier incliné vers le joueur
+  if (A > 0.01) {
+    const t = actTFp, pg = S.me ? S.me.pg : 0;
+    vmBomb.position.set(0.0, -0.58 + 0.42 * ease, -0.56 + 0.02 * Math.sin(t * 3) * ease);
+    vmBomb.rotation.set(0.95 + (actKindFp === 1 ? Math.sin(t * 9) * 0.01 : 0), 0.04 * Math.sin(t * 2), 0);
+    vmBomb.updateMatrixWorld(true);
+    if (actKindFp === 1) {            // pose : la main droite tape le code, la gauche tient le boîtier
+      _bR.set(0.02, 0.125 + Math.abs(Math.sin(t * 9)) * 0.03, 0.0); _bL.set(-0.17, 0.07, 0.03);
+    } else {                          // désamorçage : la gauche tape, la droite travaille sur les fils
+      _bR.set(0.095 + Math.sin(t * 6) * 0.01, 0.15 + (S.me && S.me.k ? 0 : Math.abs(Math.sin(t * 7)) * 0.02), 0.05);
+      _bL.set(-0.02, 0.125 + Math.abs(Math.sin(t * 9 + 1.6)) * 0.03, 0.0);
+    }
+    vmBomb.localToWorld(_bR); vmBomb.localToWorld(_bL);
+    // chaque pression du doigt = un bip
+    const n = Math.floor((t * 9 + (actKindFp === 1 ? 0 : 1.6)) / Math.PI);
+    if (n !== tapN) { tapN = n; if (actTFp > 0.05) Snd.keypad(); }
+    // LED qui clignote de plus en plus vite
+    vmBomb.userData.led.material.color.setRGB(Math.sin(now * (6 + 16 * pg)) > 0 ? 12 : 0.16, 0.02, 0.02);
+    if (vmCutter.visible) {           // pince du kit : s'ouvre et se ferme
+      const open = 0.05 + 0.2 * Math.max(0, Math.sin(t * 8));
+      vmCutter.jaw[0].rotation.y = open; vmCutter.jaw[1].rotation.y = -open;
+      vmCutter.position.copy(_bR).add(_pw.set(0.0, 0.025, -0.05)); vmCutter.rotation.set(0.5, 0, 0); vmCutter.scale.setScalar(1.7);
+      const sn = Math.floor(t * 8 / (2 * Math.PI) + 0.25);
+      if (sn !== snipN) { snipN = sn; if (actTFp > 0.1) Snd.snip(); }
+    }
+  }
   // mains sur l'arme
-  V.group.localToWorld(_h.copy(inf.handR)); armR.position.copy(_h); armR.lookAt(_e.fromArray(pos.elR).setX(pos.elR[0] * (1 - adsT * 0.5)));
+  V.group.localToWorld(_h.copy(inf.handR));
+  if (A > 0.01) _h.lerp(_bR, ease);
+  armR.position.copy(_h); armR.lookAt(_e.fromArray(pos.elR).setX(pos.elR[0] * (1 - adsT * 0.5)));
   armR.updateMatrixWorld(true);
   if (armL.visible) {
     V.group.localToWorld(_h.copy(inf.handL));
-    if (handK) { V.group.localToWorld(_h2.set(0, -0.11 + magY * 0.9 + lhy * 0.5, inf.class === 'pistol' ? 0.05 : -0.08)); _h.lerp(_h2, 0.95); }
+    if (hk > 0) {
+      V.group.localToWorld(_h2.set(0, -0.11 + magY * 0.9 + lhy * 0.5, inf.class === 'pistol' ? 0.05 : -0.08));
+      if (pf > 0) _h2.lerp(V.group.localToWorld(_pw.set(-0.2, -0.5, 0.05)), pf);
+      _h.lerp(_h2, hk * 0.95);
+    }
     if (V.pump.position.z) _h.z += V.pump.position.z;
+    if (A > 0.01) _h.lerp(_bL, ease);
+    if (rlDropNow) {                  // le chargeur usagé tombe de la main
+      rlDropNow = false; dropMag.visible = true; dropMag.position.copy(_h); dropMag.rotation.set(0, 0, 0); dropMag.vel.set(-0.25, 0.05, 0.1);
+      Snd.magdrop();
+    }
     armL.position.copy(_h); armL.lookAt(_e.fromArray(pos.elL).setX(pos.elL[0] * (1 - adsT * 0.3)));
   }
 }
@@ -373,9 +454,9 @@ function dropCurrent() {
 
 function reload() {
   const w = WEAPONS[cur], a = ammo[cur];
-  if (!a || !w.mag || reloading || a.mag >= w.mag || a.res <= 0) return;
+  if (!a || !w.mag || reloading || a.mag >= w.mag || a.res <= 0 || actFp > 0.2) return;
   const now = performance.now() / 1000;
-  reloading = true; scoped = false; rlStage = 0; rlEmpty = a.mag === 0;
+  reloading = true; scoped = false; rlStage = 0; rlEmpty = a.mag === 0; rlDropped = false;
   if (w.shell) { // une cartouche à la fois : on peut tirer pour interrompre
     const n = Math.min(w.mag - a.mag, a.res);
     rlDur = 0.3 + n * 0.5; rlNext = now + 0.45;
@@ -408,7 +489,7 @@ function surfaceAt(x, z, y) {
 }
 
 function canShoot() {
-  return alive() && locked && !ui.buy && !ui.chat && (S.ph === 'live' || S.ph === 'end');
+  return alive() && locked && !ui.buy && !ui.chat && actFp < 0.2 && (S.ph === 'live' || S.ph === 'end');
 }
 
 // dispersion instantanée (radians) selon le mouvement, la position et la rafale
@@ -712,6 +793,19 @@ function onKill(m) {
       const front = -dx * Math.sin(y) - dz * Math.cos(y), side = dx * Math.cos(y) - dz * Math.sin(y);
       vr.rig.deadDir = front >= 0 ? 1 : -1; vr.rig.deadSide = clamp(side / (Math.hypot(dx, dz) || 1), -1, 1);
     } else vr.rig.deadDir = Math.random() < 0.5 ? 1 : -1;
+    vr.rig.deadHs = !!m.hs;
+    const sp = spatial(vr.g.position.x, 0, vr.g.position.z);
+    if (sp.d < 40) setTimeout(() => Snd.thud(sp.v, sp.pan, sp), 420);
+  }
+  if (m.v === myId) {                 // ma propre chute : du côté opposé au tireur
+    const kr = m.k === myId ? null : remotes.get(m.k);
+    if (kr) {
+      const dx = kr.g.position.x - P.x, dz = kr.g.position.z - P.z, L = Math.hypot(dx, dz) || 1;
+      const front = -dx * Math.sin(P.yaw) - dz * Math.cos(P.yaw), side = dx * Math.cos(P.yaw) - dz * Math.sin(P.yaw);
+      P.deadDir = front >= 0 ? -1 : 1; P.deadSide = side >= 0 ? -1 : 1; if (Math.abs(side / L) < 0.2) P.deadSide = Math.random() < 0.5 ? 1 : -1;
+    } else { P.deadDir = 1; P.deadSide = Math.random() < 0.5 ? 1 : -1; }
+    P.deadHs = !!m.hs; P.deadT = 0;
+    setTimeout(() => Snd.thud(0.8), 380);
   }
   const k = S.names.get(m.k), v = S.names.get(m.v);
   const row = document.createElement('div');
@@ -1157,7 +1251,12 @@ function update(dt, now) {
   const isAlive = alive();
   const frozen = S.ph === 'freeze' || S.ph === 'wait';
   // visée au clic droit (toutes les armes sauf couteau et armes à lunette)
-  aiming = rmbHeld && isAlive && locked && cur !== 'knife' && !w.scope && !reloading && swapT <= 0 && !ui.buy && !ui.chat;
+  // pose / désamorçage de la bombe en cours ? (progression envoyée par le serveur)
+  const meAct = isAlive && S.me.pg > 0 ? (myTeam === 'T' ? 1 : 2) : 0;
+  if (meAct) { if (!actFp) { tapN = 0; snipN = 0; Snd.part('draw'); } actKindFp = meAct; actTFp += dt; scoped = false; reloading = false; }
+  actFp += ((meAct ? 1 : 0) - actFp) * Math.min(1, 9 * dt);
+  if (!meAct && actFp < 0.01) { actFp = 0; actTFp = 0; }
+  aiming = rmbHeld && isAlive && locked && cur !== 'knife' && !w.scope && !reloading && swapT <= 0 && !ui.buy && !ui.chat && actFp < 0.1;
   adsT += ((aiming ? 1 : 0) - adsT) * Math.min(1, 11 * dt);
   P.tag = Math.max(0, P.tag - dt); P.landT = Math.max(0, P.landT - dt * 2.2);
 
@@ -1231,12 +1330,22 @@ function update(dt, now) {
   // --- caméra
   let ey = P.y + eyeHeight() + P.dip * 0.6, cx = P.x, cz = P.z, yaw = P.yaw + P.recY, pitch = P.pitch + P.recP, showVM = isAlive, roll = -P.roll;
   if (!isAlive && connected) {
-    const r = specId && remotes.get(specId);
-    if (r && r.alive) { cx = r.g.position.x; cz = r.g.position.z; ey = r.g.position.y + (r.e.c ? 1.15 : 1.62); yaw = r.g.rotation.y; pitch = r.e.p || 0; }
-    else { if (!specId || !remotes.get(specId) || !remotes.get(specId).alive) { specId = null; cycleSpec(); } P.deadT = Math.min(1, P.deadT + dt * 2.2); ey = P.y + 1.6 - 1.3 * P.deadT * P.deadT; roll = 0.45 * P.deadT; }
+    // d'abord on s'effondre (≈ 0,6 s), ensuite seulement on passe en spectateur
+    P.deadT += dt;
+    let r = specId && remotes.get(specId);
+    if ((!r || !r.alive) && P.deadT > 1.8) { specId = null; cycleSpec(); r = specId && remotes.get(specId); }
+    if (P.deadT > 1.8 && r && r.alive) { cx = r.g.position.x; cz = r.g.position.z; ey = r.g.position.y + (r.e.c ? 1.15 : 1.62); yaw = r.g.rotation.y; pitch = r.e.p || 0; }
+    else {
+      const d = Math.min(1, P.deadT * 1.7), fall = d * d, sm = d * d * (3 - 2 * d);
+      ey = P.y + eyeHeight() - (eyeHeight() - 0.28) * fall;
+      roll = P.deadSide * 1.0 * sm;
+      pitch += P.deadHs ? 0.45 * Math.sin(Math.min(1, d * 1.6) * Math.PI * 0.5) - 0.1 * d : -0.4 * Math.sin(d * Math.PI) + 0.25 * d;
+      cx += Math.sin(yaw) * 0.45 * sm * P.deadDir; cz += Math.cos(yaw) * 0.45 * sm * P.deadDir;
+    }
     showVM = false;
   }
   if (isAlive) P.deadT = 0;
+  if (isAlive && actFp > 0.01) { pitch -= 0.3 * sstep(actFp); ey -= 0.1 * sstep(actFp); }   // on se baisse et on regarde la bombe
   // respiration et tremblement de lunette (Maj pour retenir son souffle)
   if (scoped) {
     const k = K.ShiftLeft ? 0.2 : 1, t = now;
@@ -1276,7 +1385,7 @@ function update(dt, now) {
   // blessure grave : battements de coeur
   const hp = S.me ? S.me.hp : 100;
   if (isAlive && hp <= 30) { heartT -= dt; if (heartT <= 0) { heartT = 1.05; Snd.heart(0.5 + (30 - hp) / 60); } }
-  $('hurtlow').style.opacity = isAlive && hp <= 30 ? String(0.35 + (30 - hp) / 45) : '0';
+  $('hurtlow').style.opacity = isAlive && hp <= 30 ? String(0.35 + (30 - hp) / 45) : (!isAlive && connected && P.deadT > 0 && P.deadT < 1.8 ? '1' : '0');
 
   // --- réseau (état du joueur)
   sendAcc += dt;
