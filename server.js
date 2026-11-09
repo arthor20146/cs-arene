@@ -292,7 +292,7 @@ class Room {
     if (dist > w.range + 3) return;
     // zones touchées : { h: nb, c: nb, s: nb, a: nb, l: nb } (plombs ou balle unique)
     const z = m.z && typeof m.z === 'object' ? m.z : { c: 1 };
-    let left = w.pellets || 1, dmg = 0, armored = 0, hs = false;
+    let left = w.pellets || 1, dmg = 0, hs = false;
     const pen = Math.max(0, Math.min(3, num(m.p) | 0));
     const base = w.dmg * Math.pow(w.fall, dist / 25) * Math.pow(CFG.penLoss, pen);
     for (const k of ['h', 'c', 's', 'a', 'l']) {
@@ -300,18 +300,18 @@ class Room {
       if (!n) continue;
       left -= n;
       let d = base * n * (k === 'h' ? w.hs : ZONES[k]);
-      const covered = k === 'l' ? false : k === 'h' ? t.helmet : t.armor > 0;
+      const covered = k === 'l' ? false : t.armor > 0 && (k !== 'h' || t.helmet);
       if (k === 'h') hs = hs || !w.pellets;
       if (covered) {
-        let mult = k === 'h' ? CFG.armorHead : CFG.armorBody;
-        mult = 1 - (1 - mult) * (1 - w.ap);
-        armored += d;
-        d *= mult;
+        // le gilet encaisse tous les dégâts jusqu'à ce qu'il soit détruit ; seule la part perforante passe (armes AP)
+        const thr = d * w.ap * 0.5, ab = d - thr, take = Math.min(t.armor, ab);
+        t.armor -= take;
+        d = thr + (ab - take);
       }
       dmg += d;
     }
-    if (dmg <= 0) return;
-    if (armored) t.armor = Math.max(0, t.armor - armored * 0.3 * (1 - w.ap * 0.5));
+    if (t.armor <= 0) { t.armor = 0; t.helmet = false; }
+    if (left === (w.pellets || 1)) return; // aucune zone valide touchée
     dmg = Math.round(dmg);
     t.hp -= dmg;
     send(sh.ws, { type: 'hitc', hs: hs ? 1 : 0, kill: t.hp <= 0 ? 1 : 0 });
@@ -516,7 +516,7 @@ class Room {
       if (d > R) return;
       if (this.segBlocked(g.x, Math.max(g.y, 0.2), g.z, t.x, cy, t.z)) return;
       let dmg = CFG.heDmg * Math.pow(1 - d / R, 1.25);
-      if (t.armor > 0) { dmg *= CFG.armorBody; t.armor = Math.max(0, t.armor - dmg * 0.4); }
+      if (t.armor > 0) { const take = Math.min(t.armor, dmg); t.armor -= take; dmg -= take; if (t.armor <= 0) { t.armor = 0; t.helmet = false; } }
       dmg = Math.round(dmg);
       if (dmg < 1) return;
       t.hp -= dmg;
