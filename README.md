@@ -35,6 +35,13 @@ Tout est généré au chargement, sans fichier image ni son :
 - **Mort** : les genoux plient, les bras partent en l'air, puis le corps bascule (tête renversée sur une balle à la tête) et rebondit au sol. À la première personne, la caméra tombe et bascule du côté opposé au tireur avant de passer en spectateur (≈ 1,8 s).
 - Le serveur envoie dans le snapshot `q` (1 pose, 2 désamorçage), `g` (progression) et `kt` (kit) ; la bombe est posée 0,55 m devant le joueur.
 
+## Ace, séries et MVP
+
+- **ACE** : un joueur élimine toute l'équipe adverse dans la même manche (5 sur 5 ; avec moins de 5 adversaires, tous les adversaires, à partir de 3). Grande bannière dorée, fanfare et message pour tout le monde.
+- **Séries** : double, triple et quadruple kill dans la manche (annonce + son pour le joueur, message pour les autres à partir de 3). **Premier sang** à la première élimination de la manche.
+- **MVP** de la manche : celui qui a posé ou désamorcé la bombe, sinon le meilleur tueur de l'équipe gagnante. Affiché à la fin de manche.
+- Le tableau des scores (Tab) montre les colonnes ★ (MVP) et ACE. Le serveur compte les kills par manche (`rk`) et envoie `rk`, `fb`, `ace` dans le message `kill`, et `mvp` dans `rend`.
+
 ## Cartes
 
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.

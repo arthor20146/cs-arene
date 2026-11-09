@@ -175,6 +175,15 @@ window.Snd = (function () {
     },
     buy() { burst({ freq: 2600, dur: 0.03, vol: 0.14, q: 5 }); burst({ freq: 1500, dur: 0.05, vol: 0.18, q: 4, delay: 0.07 }); },
     roundStart() { tone({ wave: 'triangle', freq: 520, dur: 0.15, vol: 0.18 }); tone({ wave: 'triangle', freq: 780, dur: 0.25, vol: 0.18, delay: 0.15 }); },
+    // annonces de série : n = 2 double, 3 triple, 4 quadruple
+    multi(n) { const b = [660, 784, 988, 1175]; for (let i = 0; i < Math.min(n, 4); i++) tone({ wave: 'triangle', freq: b[i], dur: 0.16, vol: 0.14, delay: i * 0.07 }); },
+    firstBlood() { tone({ wave: 'sawtooth', freq: 220, to: 440, dur: 0.22, vol: 0.1 }); burst({ freq: 1800, dur: 0.06, vol: 0.2, q: 3, delay: 0.2 }); },
+    ace() {
+      [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { tone({ wave: 'triangle', freq: f, dur: 0.3, vol: 0.17, delay: i * 0.09, wet: 0.4 }); tone({ wave: 'square', freq: f / 2, dur: 0.2, vol: 0.04, delay: i * 0.09 }); });
+      tone({ wave: 'triangle', freq: 1568, dur: 1.1, vol: 0.14, delay: 0.6, wet: 0.7 }); tone({ wave: 'triangle', freq: 2093, dur: 1.1, vol: 0.08, delay: 0.6, wet: 0.7 });
+      burst({ freq: 5000, dur: 0.5, vol: 0.06, q: 1, type: 'highpass', delay: 0.55 });
+    },
+    mvp() { [784, 988, 1175].forEach((f, i) => tone({ wave: 'triangle', freq: f, dur: 0.2, vol: 0.12, delay: i * 0.1 })); },
     win() { [520, 660, 780, 1040].forEach((f, i) => tone({ wave: 'triangle', freq: f, dur: 0.22, vol: 0.16, delay: i * 0.12 })); },
     lose() { [440, 370, 300].forEach((f, i) => tone({ wave: 'triangle', freq: f, dur: 0.28, vol: 0.16, delay: i * 0.16 })); }
   };

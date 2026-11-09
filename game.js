@@ -784,6 +784,7 @@ function onRemoteShot(m) {
 let remoteTr = 0;
 
 function onKill(m) {
+  killAnnounce(m);
   // chute du corps : à l'opposé du tireur
   const vr = remotes.get(m.v);
   if (vr && vr.rig) {
@@ -835,16 +836,48 @@ function onHurt(m) {
 }
 let hurtT = 0;
 
+/* ---------- séries de kills, premier sang, ACE ---------- */
+let streakTimer = 0;
+function streak(text, sub, color, ace) {
+  const e = $('streak'); e.className = ''; void e.offsetWidth;       // relance l'animation
+  e.textContent = text; e.style.color = color || '';
+  if (sub) { const s = document.createElement('small'); s.textContent = sub; e.appendChild(s); }
+  e.className = (ace ? 'ace ' : '') + 'show'; if (!ace) e.style.fontSize = '46px';
+  else e.style.fontSize = '';
+}
+const MULTI = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'QUADRUPLE KILL' };
+function killAnnounce(m) {
+  const k = S.names.get(m.k); if (!k || m.k === m.v) return;
+  const col = k.t === 'T' ? '#e0a040' : '#5aa0ff';
+  if (m.ace) {
+    Snd.ace();
+    if (m.k === myId) streak('ACE !', 'Tu as éliminé toute l\'équipe adverse', '', true);
+    else streak('ACE', k.n + ' a éliminé toute l\'équipe adverse', col, true);
+    notice('★ ACE de ' + k.n + ' ★', '#ffd24a');
+    return;
+  }
+  if (m.fb) {
+    if (m.k === myId) { Snd.firstBlood(); streak('PREMIER SANG', '', '#ff5a4a'); }
+    else notice('Premier sang : ' + k.n, '#ff8a7a');
+  }
+  if (m.k === myId && MULTI[m.rk]) { Snd.multi(m.rk); setTimeout(() => streak(MULTI[m.rk], m.rk + ' kills dans la manche', '#ffd24a'), m.fb ? 900 : 0); }
+  else if (m.k !== myId && m.rk >= 3) notice(k.n + ' : ' + m.rk + ' kills dans la manche', col);
+}
+
 function onRoundStart(m) {
   Snd.roundStart();
   banner('MANCHE ' + m.round, '#ffffff', 'Phase d\'achat : appuie sur B', 2200);
-  fx.clear(); closeBuy(true);
+  fx.clear(); closeBuy(true); $('streak').className = '';
 }
 function onRoundEnd(m) {
   const reasons = { elim: 'Équipe adverse éliminée', bomb: 'La bombe a explosé', defuse: 'Bombe désamorcée', time: 'Temps écoulé' };
   const win = m.w === myTeam;
   banner(teamName(m.w).toUpperCase() + ' GAGNENT', m.w === 'T' ? '#e0a040' : '#5aa0ff', (reasons[m.r] || '') + (m.over ? ' · Fin du match' : ''), 5000);
   if (win) Snd.win(); else Snd.lose();
+  if (m.mvp) {
+    const t = S.names.get(m.mvp.i), why = m.mvp.h ? (m.r === 'defuse' ? 'a désamorcé la bombe' : 'a posé la bombe') : m.mvp.k + ' kill' + (m.mvp.k > 1 ? 's' : '');
+    setTimeout(() => { Snd.mvp(); notice('★ MVP : ' + m.mvp.n + ' (' + why + ')' + (m.mvp.i === myId ? ' ★ C\'est toi !' : ''), '#ffd24a'); }, 900);
+  }
 }
 
 function banner(text, color, sub, ms) {
@@ -1221,14 +1254,16 @@ function renderBoard() {
   head.append(l, rr); board.appendChild(head);
   [mine, opp].forEach((tm) => {
     const tb = document.createElement('table');
-    tb.innerHTML = '<tr><th>' + teamName(tm) + '</th><th class="num">Kills</th><th class="num">Morts</th></tr>';
+    tb.innerHTML = '<tr><th>' + teamName(tm) + '</th><th class="num">★</th><th class="num">ACE</th><th class="num">Kills</th><th class="num">Morts</th></tr>';
     rows.filter((p) => p.t === tm).sort((a, b) => b.k - a.k || a.d - b.d).forEach((p) => {
       const tr = document.createElement('tr');
       if (p.i === myId) tr.className = 'me'; if (!p.a) tr.className += ' dead';
       const a = document.createElement('td'); a.textContent = p.n; a.className = 't' + tm;
       const b = document.createElement('td'); b.className = 'num'; b.textContent = p.k;
       const c = document.createElement('td'); c.className = 'num'; c.textContent = p.d;
-      tr.append(a, b, c); tb.appendChild(tr);
+      const mv = document.createElement('td'); mv.className = 'num'; mv.textContent = p.mv || '';
+      const ac = document.createElement('td'); ac.className = 'num ac'; ac.textContent = p.ac || '';
+      tr.append(a, mv, ac, b, c); tb.appendChild(tr);
     });
     board.appendChild(tb);
   });

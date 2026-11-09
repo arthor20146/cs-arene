@@ -72,7 +72,8 @@ class Room {
     this.started = { T: 0, CT: 0 };
     this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 };
     this.drops = []; this.dropsDirty = true;
-    this.players.forEach((p) => { p.k = 0; p.d = 0; p.survived = false; this.resetLoadout(p, true); p.alive = false; });
+    this.firstBlood = false;
+    this.players.forEach((p) => { p.k = 0; p.d = 0; p.ac = 0; p.mv = 0; p.rk = 0; p.survived = false; this.resetLoadout(p, true); p.alive = false; });
   }
 
   /* ---------- armes au sol ---------- */
@@ -181,6 +182,8 @@ class Room {
       if (!p.team) p.team = this.chooseTeam(p, 'auto');
     });
     this.drops = []; this.dropsDirty = true;
+    this.firstBlood = false;
+    this.all().forEach((p) => { p.rk = 0; });
     const idx = { T: 0, CT: 0 };
     this.all().forEach((p) => {
       p.am = {};
@@ -200,7 +203,18 @@ class Room {
     this.bcast({ type: 'rstart', round: this.round });
   }
 
-  endRound(winner, reason) {
+  // MVP de la manche : celui qui a posé / désamorcé, sinon le meilleur tueur du camp vainqueur
+  pickMvp(winner, hero) {
+    let m = hero ? this.players.get(hero) : null;
+    if (!m) {
+      const c = this.team(winner).filter((p) => p.rk > 0).sort((a, b) => b.rk - a.rk || (b.alive ? 1 : 0) - (a.alive ? 1 : 0));
+      m = c[0] || null;
+    }
+    if (m) m.mv++;
+    return m;
+  }
+
+  endRound(winner, reason, hero) {
     if (this.phase !== 'live') return;
     const loser = winner === 'T' ? 'CT' : 'T';
     this.score[winner]++;
@@ -218,7 +232,8 @@ class Room {
     this.phaseEnd = Date.now() + CFG.end * 1000;
     const winTarget = CFG.maxRounds / 2 + 1;
     const over = this.score[winner] >= winTarget;
-    this.bcast({ type: 'rend', w: winner, r: reason, sc: this.score, over: over ? 1 : 0 });
+    const mvp = this.pickMvp(winner, hero);
+    this.bcast({ type: 'rend', w: winner, r: reason, sc: this.score, over: over ? 1 : 0, mvp: mvp ? { i: mvp.id, n: mvp.name, k: mvp.rk, h: hero && mvp.id === hero ? 1 : 0 } : null });
     if (over) { this.phase = 'match'; this.phaseEnd = Date.now() + 10000; }
   }
 
@@ -243,12 +258,18 @@ class Room {
     if (this.bomb.s === 'carried' && this.bomb.c === v.id) {
       this.bomb.s = 'dropped'; this.bomb.c = null; this.bomb.x = v.x; this.bomb.y = 0; this.bomb.z = v.z;
     }
+    let rk = 0, fb = 0, ace = 0;
     if (k && k !== v) {
       k.k++;
       const w = WEAPONS[wid];
       k.money = Math.min(CFG.maxMoney, k.money + (w ? w.kill : 300));
+      rk = ++k.rk;
+      if (!this.firstBlood) { this.firstBlood = true; fb = 1; }
+      // ACE : il a éliminé toute l'équipe adverse (5 sur 5, ou tous les adversaires si moins de 5, au moins 3)
+      const foes = this.started[v.team] || 0;
+      if (foes >= 3 && rk >= Math.min(5, foes)) { ace = 1; k.ac++; }
     }
-    this.bcast({ type: 'kill', k: k ? k.id : 0, v: v.id, w: wid || 'bomb', hs: hs ? 1 : 0 });
+    this.bcast({ type: 'kill', k: k ? k.id : 0, v: v.id, w: wid || 'bomb', hs: hs ? 1 : 0, rk, fb, ace });
   }
 
   onHit(sh, m) {
@@ -375,7 +396,7 @@ class Room {
           const site = Object.keys(SITES).find((k) => Math.hypot(p.x - SITES[k].x, p.z - SITES[k].z) <= SITES[k].r);
           if (!site) { p.act = null; p.pg = 0; return; }
           const bp = this.bombSpot(p);
-          b.s = 'planted'; b.c = null; b.x = bp.x; b.y = 0; b.z = bp.z; b.site = site; b.at = now + CFG.bombTime * 1000;
+          b.s = 'planted'; b.c = null; b.by = p.id; b.x = bp.x; b.y = 0; b.z = bp.z; b.site = site; b.at = now + CFG.bombTime * 1000;
           p.money = Math.min(CFG.maxMoney, p.money + 300);
           p.act = null; p.pg = 0;
           this.bcast({ type: 'msg', text: 'La bombe a été posée sur le site ' + site, kind: 'bomb' });
@@ -388,7 +409,7 @@ class Room {
         if (p.pg >= 1) {
           b.s = 'defused'; p.act = null; p.pg = 0;
           this.bcast({ type: 'msg', text: 'La bombe a été désamorcée', kind: 'bomb' });
-          this.endRound('CT', 'defuse');
+          this.endRound('CT', 'defuse', p.id);
         }
       }
     });
@@ -402,7 +423,7 @@ class Room {
         if (d < 12) this.killPlayer(p, null, 'bomb', false);
         else if (d < 25) { p.hp -= Math.round(150 * (1 - (d - 12) / 13)); if (p.hp <= 0) this.killPlayer(p, null, 'bomb', false); }
       });
-      this.endRound('T', 'bomb');
+      this.endRound('T', 'bomb', b.by);
       return;
     }
     this.checkEnd(now);
@@ -416,7 +437,7 @@ class Room {
     const pl = this.all().map((p) => ({
       i: p.id, n: p.name, t: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), r: r2(p.yaw), p: r2(p.pitch),
       c: p.c, w: p.inv.cur, a: p.alive ? 1 : 0, k: p.k, d: p.d, h: p.helmet ? 1 : 0, l: p.rl ? 1 : 0,
-      q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0
+      q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0, ac: p.ac, mv: p.mv
     }));
     const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
@@ -517,7 +538,7 @@ class Room {
     const p = {
       id, ws, name, team: null, pending: null, alive: false, hp: 100, armor: 0, kit: false, money: CFG.startMoney,
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
-      k: 0, d: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}
+      k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}
     };
     this.players.set(id, p);
     p.team = this.chooseTeam(p, want);
