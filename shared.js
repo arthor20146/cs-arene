@@ -28,27 +28,7 @@
     tagTime: 0.45,       // s de ralentissement quand on est touché
     maxDrops: 24,        // armes au sol par salle
     pickRange: 1.9,      // m : portée de E pour prendre une arme
-    pickAuto: 1.0,       // m : ramassage automatique si l'emplacement est libre
-    // grenades
-    grenTotal: 4,        // grenades portées au maximum
-    flashRange: 42,      // m : portée de l'aveuglement
-    heRadius: 10,        // m : rayon de la fragmentation
-    heDmg: 100,          // dégâts au centre
-    smokeTime: 18,       // s : durée du nuage
-    smokeRadius: 3.8,
-    fireTime: 7,         // s : durée du feu
-    fireRadius: 3.4,
-    fireTick: 0.5,       // s entre deux brûlures
-    fireDmg: 8
-  };
-
-  // Grenades : max = nombre portable de ce type, fuse = délai avant l'effet (s)
-  // La Molotov éclate au premier contact avec le sol (ou après fuse)
-  const GREN = {
-    flash: { n: 'Grenade flash', price: 200, max: 2, fuse: 1.6 },
-    smoke: { n: 'Fumigène', price: 300, max: 1, fuse: 1.8 },
-    he:    { n: 'Grenade à fragmentation', price: 300, max: 1, fuse: 1.6 },
-    molo:  { n: 'Cocktail Molotov', price: 400, max: 1, fuse: 3.0 }
+    pickAuto: 1.0        // m : ramassage automatique si l'emplacement est libre
   };
 
   // Multiplicateurs de dégâts par zone du corps (h = tête : voir w.hs)
@@ -383,5 +363,5 @@
   // Compatibilité : anciennes variables = carte Dust
   const BOXES = MAPS.dust.boxes, SITES = MAPS.dust.sites, SPAWNS = MAPS.dust.spawns;
 
-  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS };
+  return { CFG, ZONES, WEAPONS, SHOP, MAPS, BOXES, SITES, SPAWNS };
 });

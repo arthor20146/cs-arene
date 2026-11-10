@@ -15,6 +15,10 @@ Le serveur accepte 10 joueurs par salle. Avec un seul joueur, tu es en mode entr
 
 Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16), `MIN_PLAYERS` (1), `MAP` (carte par défaut si personne n'en choisit : `dust`, `docks`, `medina` ou `cargo`).
 
+## Version Windows (.exe)
+
+Installe [Node.js](https://nodejs.org) 18 ou plus, puis double-clique sur `build-exe.bat` (ou `npm install` puis `npm run dist`). Le fichier `dist/CS-Arena.exe` est un exécutable unique, sans installation : il lance le serveur du jeu et ouvre la fenêtre en plein écran (F11 pour basculer). Les amis du même réseau rejoignent via `http://TON-IP:3000` dans un navigateur. Pour jouer sur un serveur déjà en ligne : `CS-Arena.exe --url=https://ton-serveur.fly.dev`. Pour tester sans fabriquer l'exe : `npm run app`.
+
 ## Rendu réaliste
 
 Tout est généré au chargement, sans fichier image ni son :
@@ -26,6 +30,19 @@ Tout est généré au chargement, sans fichier image ni son :
 - son : écho, retard selon la distance, murs qui étouffent, balles qui sifflent, acouphène après l'explosion.
 
 **Qualité graphique** (menu et pause) : `Basse` (sans ombres, pour les petits PC), `Moyenne`, `Haute` (occlusion ambiante, halo lumineux, anticrénelage). Les textures plus fines de `Haute` s'appliquent au prochain chargement de la page.
+
+## Paramètres
+
+Bouton **Paramètres** dans le menu principal et dans la pause (Échap en jeu). Tout est enregistré dans le navigateur (`cs_settings`) et appliqué tout de suite.
+
+- **Contrôles** : sensibilité (et sensibilité en visée), axe vertical inversé, visée et accroupi en maintenu ou en bascule.
+- **Touches** : chaque action accepte deux touches. Clic sur une case puis appui sur la touche ; Échap annule, Suppr ou clic droit efface. Une touche déjà prise est retirée à l'ancienne action. Les noms suivent la disposition réelle du clavier (AZERTY sur Chrome et Edge).
+- **Vidéo** : qualité graphique, résolution de rendu (50 à 100 %), champ de vision (60 à 110°), secousses et balancement, plein écran automatique, compteur d'images par seconde.
+- **Réticule** : couleur, épaisseur, longueur, opacité, point central, avec aperçu.
+- **Audio** : volume, ambiance, son de touche, son coupé en arrière-plan, test du son.
+- **Interface** : radar (affichage et taille), marqueur de touche, éliminations, chat.
+
+Les réglages sont lus dans `settings.js` (`Settings.cfg`, `Settings.binds`) ; `game.js` les applique dans `applySetting`. Pour ajouter un réglage : une ligne dans `DEF` et dans `TABS` (`settings.js`), puis un `case` dans `applySetting`.
 
 ## Animations (pose, désamorçage, recharge, mort)
 
@@ -107,6 +124,8 @@ Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas
 server.js      serveur HTTP + salles WebSocket (manches, économie, bombe, dégâts)
 shared.js      armes, cartes, réglages (utilisé par le serveur ET le client)
 game.js        mouvement, tir, réseau, HUD, radar
+main.js        application Windows (Electron)
+settings.js    menu Paramètres : réglages, touches personnalisables
 gfx.js         rendu : textures, ciel, lumière, décor, post-traitement, particules
 models.js      armes, soldats articulés, bras, bombe
 audio.js       sons synthétisés (aucun fichier audio)

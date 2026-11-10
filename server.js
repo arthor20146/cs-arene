@@ -6,8 +6,7 @@ const WebSocket = require('ws');
 // Docker : fichiers client dans ./public ; dépôt à plat (npm start en local) : à la racine
 const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
 const CS = require(path.join(PUB, 'shared.js'));
-const { CFG, ZONES, WEAPONS, GREN, MAPS } = CS;
-const GR = 0.11; // rayon d'une grenade (m)
+const { CFG, ZONES, WEAPONS, MAPS } = CS;
 
 const PORT = process.env.PORT || 3000;
 const MIME = {
@@ -44,7 +43,6 @@ class Room {
     this.players = new Map();
     this.nextId = 1;
     this.nextDrop = 1;
-    this.nextG = 1;
     this.snapN = 0;
     this.resetMatch();
     this.timer = setInterval(() => this.tick(), CFG.tick);
@@ -60,7 +58,6 @@ class Room {
   defaultSecondary(team) { return team === 'CT' ? 'usp' : 'glock'; }
   resetLoadout(p, full) {
     p.hp = 100; p.armor = 0; p.helmet = false; p.kit = false;
-    p.g = { flash: 0, smoke: 0, he: 0, molo: 0 };
     p.inv = { primary: null, secondary: this.defaultSecondary(p.team), cur: this.defaultSecondary(p.team) };
     if (full) p.money = CFG.startMoney;
   }
@@ -75,7 +72,6 @@ class Room {
     this.started = { T: 0, CT: 0 };
     this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 };
     this.drops = []; this.dropsDirty = true;
-    this.gren = []; this.zones = [];
     this.firstBlood = false;
     this.players.forEach((p) => { p.k = 0; p.d = 0; p.ac = 0; p.mv = 0; p.rk = 0; p.survived = false; this.resetLoadout(p, true); p.alive = false; });
   }
@@ -186,7 +182,6 @@ class Room {
       if (!p.team) p.team = this.chooseTeam(p, 'auto');
     });
     this.drops = []; this.dropsDirty = true;
-    this.gren = []; this.zones = [];
     this.firstBlood = false;
     this.all().forEach((p) => { p.rk = 0; });
     const idx = { T: 0, CT: 0 };
@@ -336,11 +331,6 @@ class Room {
       if (p.team !== 'CT' || p.kit || p.money < 400) return;
       p.money -= 400; p.kit = true; return;
     }
-    if (GREN[item]) {
-      const gd = GREN[item];
-      if (p.money < gd.price || p.g[item] >= gd.max || this.gTotal(p) >= CFG.grenTotal) return;
-      p.money -= gd.price; p.g[item]++; return;
-    }
     const w = WEAPONS[item];
     if (!w || w.slot === 3 || w.price <= 0) return;
     if (w.team && w.team !== p.team) return;
@@ -352,179 +342,6 @@ class Room {
     if (w.slot === 1) p.inv.primary = item; else p.inv.secondary = item;
     p.inv.cur = item;
     delete p.am[item];                         // arme neuve : munitions pleines
-  }
-
-
-  /* ---------- grenades ---------- */
-  gTotal(p) { return p.g.flash + p.g.smoke + p.g.he + p.g.molo; }
-
-  // le segment a->b traverse-t-il un obstacle ? (volumes du sol à leur hauteur, un peu réduits)
-  segBlocked(ax, ay, az, bx, by, bz) {
-    const o = [ax, ay, az], d = [bx - ax, by - ay, bz - az];
-    for (const b of this.map.boxes) {
-      const lo = [b.x - b.w / 2 + 0.04, 0, b.z - b.d / 2 + 0.04], hi = [b.x + b.w / 2 - 0.04, b.h - 0.04, b.z + b.d / 2 - 0.04];
-      let t0 = 0, t1 = 1, hit = true;
-      for (let i = 0; i < 3; i++) {
-        if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) { hit = false; break; } continue; }
-        let a = (lo[i] - o[i]) / d[i], c = (hi[i] - o[i]) / d[i];
-        if (a > c) { const q = a; a = c; c = q; }
-        t0 = Math.max(t0, a); t1 = Math.min(t1, c);
-        if (t0 > t1) { hit = false; break; }
-      }
-      if (hit) return true;
-    }
-    return false;
-  }
-
-  // volume le plus haut qui touche la sphère de la grenade en (x, y, z)
-  gOverlap(x, y, z, r) {
-    let best = null;
-    for (const b of this.map.boxes) {
-      if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r && y - r < b.h && (!best || b.h > best.h)) best = b;
-    }
-    return best;
-  }
-
-  throwGren(p, m, now) {
-    if (!p.alive || this.phase !== 'live') return;
-    const k = m.k, def = GREN[k];
-    if (!def || !(p.g[k] > 0) || now - p.lastThrow < 450 || this.gren.length >= 40) return;
-    if (!Array.isArray(m.d)) return;
-    const d = m.d.slice(0, 3).map((v) => num(v));
-    const dl = Math.hypot(d[0], d[1], d[2]);
-    if (dl < 0.5) return;
-    d[0] /= dl; d[1] /= dl; d[2] /= dl;
-    p.lastThrow = now;
-    const soft = m.s ? 1 : 0;
-    const ox = p.x, oy = p.y + (p.c ? CFG.eyeCrouch : CFG.eye) - 0.15, oz = p.z;
-    let sx = ox + d[0] * 0.45, sy = oy + d[1] * 0.45, sz = oz + d[2] * 0.45;
-    if (this.segBlocked(ox, oy, oz, sx, sy, sz) || this.gOverlap(sx, sy, sz, GR)) { sx = ox; sy = oy; sz = oz; }
-    sy = Math.max(sy, GR + 0.02);
-    // arc : on relève un peu le tir, vitesse plus faible pour un lancer court
-    const sp = soft ? 8.5 : 19, up = soft ? 0.32 : 0.15;
-    let ux = d[0], uy = d[1] + up, uz = d[2];
-    const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
-    // le mouvement du joueur s'ajoute un peu (lancer en courant)
-    let mvx = 0, mvz = 0;
-    if (Array.isArray(m.v)) { mvx = num(m.v[0]); mvz = num(m.v[1]); const ml = Math.hypot(mvx, mvz); if (ml > 7) { mvx *= 7 / ml; mvz *= 7 / ml; } }
-    const g = { i: this.nextG++, k, owner: p.id, x: sx, y: sy, z: sz, vx: ux * sp + mvx * 0.7, vy: uy * sp, vz: uz * sp + mvz * 0.7, at: now + def.fuse * 1000 };
-    this.gren.push(g);
-    p.g[k]--;
-    if (p.inv.cur === k && p.g[k] <= 0) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
-    this.bcast({ type: 'throw', id: p.id, k, x: r2(sx), y: r2(sy), z: r2(sz) }, p.id);
-  }
-
-  // un pas de physique : gravité, rebonds sur les murs, caisses et le sol. Renvoie vrai si la grenade touche le sol / un dessus
-  stepGren(g, dt) {
-    let floor = false;
-    g.vy -= 20 * dt;
-    const nx = g.x + g.vx * dt;
-    if (this.gOverlap(nx, g.y, g.z, GR)) { g.vx *= -0.42; g.vz *= 0.85; } else g.x = nx;
-    const nz = g.z + g.vz * dt;
-    if (this.gOverlap(g.x, g.y, nz, GR)) { g.vz *= -0.42; g.vx *= 0.85; } else g.z = nz;
-    let ny = g.y + g.vy * dt, landed = false;
-    const b = this.gOverlap(g.x, ny, g.z, GR);
-    if (b) {
-      if (g.vy < 0 && g.y - GR >= b.h - 0.06) { ny = b.h + GR; landed = true; }
-      else { ny = g.y; g.vy *= -0.3; }
-    } else if (ny < GR) { ny = GR; landed = true; }
-    g.y = ny;
-    if (landed) {
-      floor = true;
-      if (g.vy < -1.5) { g.vy = -g.vy * 0.4; g.vx *= 0.7; g.vz *= 0.7; }
-      else {
-        g.vy = 0;
-        const f = Math.max(0, 1 - 4 * dt); g.vx *= f; g.vz *= f;
-        if (Math.hypot(g.vx, g.vz) < 0.25) { g.vx = 0; g.vz = 0; }
-      }
-    }
-    g.x = Math.max(-39.6, Math.min(39.6, g.x)); g.z = Math.max(-39.6, Math.min(39.6, g.z));
-    return floor;
-  }
-
-  tickGren(now) {
-    const steps = Math.max(1, Math.round(CFG.tick / 10));
-    for (const g of this.gren.slice()) {
-      let floor = false;
-      for (let i = 0; i < steps; i++) if (this.stepGren(g, 0.01)) floor = true;
-      if (now >= g.at || (g.k === 'molo' && floor && now - (g.at - GREN.molo.fuse * 1000) > 120)) this.detonate(g, now);
-    }
-    // zones : fumée et feu
-    for (const z of this.zones.slice()) {
-      if (now >= z.until) { this.zones.splice(this.zones.indexOf(z), 1); continue; }
-      if (z.k !== 'fire' || this.phase !== 'live' || now < z.next) continue;
-      z.next = now + CFG.fireTick * 1000;
-      const owner = this.players.get(z.owner) || null;
-      let any = false;
-      this.all().forEach((t) => {
-        if (!t.alive || (owner && t.team === owner.team && t.id !== owner.id)) return;
-        if (Math.hypot(t.x - z.x, t.z - z.z) > z.r || Math.abs(t.y - z.y) > 2.2) return;
-        if (this.segBlocked(z.x, z.y + 0.5, z.z, t.x, t.y + 0.5, t.z)) return;
-        t.hp -= CFG.fireDmg;
-        send(t.ws, { type: 'hurt', dx: 0, dz: 0, dmg: CFG.fireDmg, hs: 0, fire: 1 });
-        any = true;
-        if (t.hp <= 0) this.killPlayer(t, owner, 'molo', false);
-      });
-      if (any) this.checkEnd(now);
-    }
-  }
-
-  detonate(g, now) {
-    const i = this.gren.indexOf(g);
-    if (i >= 0) this.gren.splice(i, 1);
-    const owner = this.players.get(g.owner) || null;
-    const x = r2(g.x), y = r2(Math.max(g.y, 0.15)), z = r2(g.z);
-    this.bcast({ type: 'gev', e: 'pop', k: g.k, x, y, z });
-    if (g.k === 'flash') this.popFlash(g);
-    else if (g.k === 'he') this.popHE(g, owner, now);
-    else if (g.k === 'smoke') {
-      // la fumée éteint les feux proches
-      this.zones = this.zones.filter((q) => !(q.k === 'fire' && Math.hypot(q.x - g.x, q.z - g.z) < CFG.smokeRadius + 1.2));
-      this.zones.push({ i: this.nextG++, k: 'smoke', x, y, z, r: CFG.smokeRadius, until: now + CFG.smokeTime * 1000, owner: g.owner });
-    } else if (g.k === 'molo') {
-      const gy = this.groundY(g.x, g.z, g.y);
-      this.zones.push({ i: this.nextG++, k: 'fire', x, y: r2(gy), z, r: CFG.fireRadius, until: now + CFG.fireTime * 1000, next: now + 200, owner: g.owner });
-    }
-  }
-
-  // aveuglement : dépend de la distance, de la vue directe et de la direction du regard
-  popFlash(g) {
-    this.all().forEach((t) => {
-      if (!t.alive) return;
-      const ex = t.x, ey = t.y + (t.c ? CFG.eyeCrouch : CFG.eye), ez = t.z;
-      const dx = g.x - ex, dy = g.y - ey, dz = g.z - ez, dist = Math.hypot(dx, dy, dz);
-      if (dist > CFG.flashRange) return;
-      if (this.segBlocked(g.x, Math.max(g.y, 0.2), g.z, ex, ey, ez)) return;
-      const cp = Math.cos(t.pitch);
-      const fx = -Math.sin(t.yaw) * cp, fy = Math.sin(t.pitch), fz = -Math.cos(t.yaw) * cp;
-      const dot = dist > 0.01 ? (fx * dx + fy * dy + fz * dz) / dist : 1;
-      const f = (dot + 1) / 2, face = 0.14 + 0.86 * f * f;
-      const total = 5.0 * face * Math.pow(1 - dist / CFG.flashRange, 0.8);
-      if (total < 0.3) return;
-      send(t.ws, { type: 'blind', w: r2(total * 0.42), t: r2(total) });
-    });
-  }
-
-  // fragmentation : dégâts selon la distance, arrêtés par les murs, pas de tir allié (mais on se blesse soi-même)
-  popHE(g, owner, now) {
-    if (this.phase !== 'live') return;
-    const R = CFG.heRadius;
-    this.all().forEach((t) => {
-      if (!t.alive || (owner && t.team === owner.team && t.id !== owner.id)) return;
-      const cy = t.y + (t.c ? 0.7 : 1.0);
-      const d = Math.hypot(g.x - t.x, g.y - cy, g.z - t.z);
-      if (d > R) return;
-      if (this.segBlocked(g.x, Math.max(g.y, 0.2), g.z, t.x, cy, t.z)) return;
-      let dmg = CFG.heDmg * Math.pow(1 - d / R, 1.25);
-      if (t.armor > 0) { dmg *= CFG.armorBody; t.armor = Math.max(0, t.armor - dmg * 0.4); }
-      dmg = Math.round(dmg);
-      if (dmg < 1) return;
-      t.hp -= dmg;
-      send(t.ws, { type: 'hurt', dx: r2(g.x - t.x), dz: r2(g.z - t.z), dmg, hs: 0 });
-      if (owner && owner !== t) send(owner.ws, { type: 'hitc', hs: 0, kill: t.hp <= 0 ? 1 : 0 });
-      if (t.hp <= 0) this.killPlayer(t, owner, 'he', false);
-    });
-    this.checkEnd(now);
   }
 
   // la bombe est posée 0,55 m devant le joueur (à ses pieds si un mur gêne)
@@ -546,9 +363,7 @@ class Room {
       if (now >= this.phaseEnd) { this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000; }
     } else if (this.phase === 'live') {
       this.tickLive(now);
-      this.tickGren(now);
     } else if (this.phase === 'end') {
-      this.tickGren(now);
       this.autoPickup(); // le dernier kill termine la manche : son arme reste à prendre
       if (now >= this.phaseEnd) this.startRound();
     } else if (this.phase === 'match') {
@@ -627,9 +442,7 @@ class Room {
     const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
       type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
-      b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl,
-      gr: this.gren.map((g) => ({ i: g.i, k: g.k, x: r2(g.x), y: r2(g.y), z: r2(g.z), vx: r2(g.vx), vy: r2(g.vy), vz: r2(g.vz) })),
-      zn: this.zones.map((z) => ({ i: z.i, k: z.k, x: z.x, y: z.y, z: z.z, r: z.r, l: r2(Math.max(0, (z.until - now) / 1000)) }))
+      b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl
     };
     // armes au sol : à chaque changement, et chaque seconde pour ceux qui arrivent
     if (this.dropsDirty || ++this.snapN >= 20) {
@@ -640,7 +453,7 @@ class Room {
       common.me = {
         hp: Math.max(0, p.hp), ar: Math.round(p.armor), he: p.helmet ? 1 : 0, mo: p.money, p: p.inv.primary, s: p.inv.secondary,
         k: p.kit ? 1 : 0, bm: b.s === 'carried' && b.c === p.id ? 1 : 0, pg: r2(Math.min(1, p.pg || 0)),
-        al: p.alive ? 1 : 0, bo: buyOpen && p.alive ? 1 : 0, t: p.team, g: p.g
+        al: p.alive ? 1 : 0, bo: buyOpen && p.alive ? 1 : 0, t: p.team
       };
       send(p.ws, common);
     });
@@ -654,7 +467,7 @@ class Room {
         if (now - p.lastSt < 25) return;
         p.lastSt = now;
         p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; p.rl = m.rl ? 1 : 0;
-        if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife' || (GREN[m.w] && p.g[m.w] > 0))) p.inv.cur = m.w;
+        if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife')) p.inv.cur = m.w;
         if (m.w === p.inv.cur) this.noteAmmo(p, m.am); // sinon : message parti avant un échange d'arme
         if (!p.alive || this.phase === 'freeze') return;
         p.x = Math.max(-40, Math.min(40, num(m.x, p.x)));
@@ -680,7 +493,6 @@ class Room {
         break;
       }
       case 'buy': if (typeof m.item === 'string') this.buy(p, m.item); break;
-      case 'throw': this.throwGren(p, m, now); break;
       case 'act': {
         if (!m.on) { p.act = null; p.pg = 0; return; }
         if (!p.alive) return;
@@ -726,7 +538,7 @@ class Room {
     const p = {
       id, ws, name, team: null, pending: null, alive: false, hp: 100, armor: 0, kit: false, money: CFG.startMoney,
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
-      k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, lastThrow: 0, alive_ws: true, rl: 0, am: {}, g: { flash: 0, smoke: 0, he: 0, molo: 0 }
+      k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}
     };
     this.players.set(id, p);
     p.team = this.chooseTeam(p, want);

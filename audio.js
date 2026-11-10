@@ -1,7 +1,7 @@
 /* Sons synthétisés avec WebAudio (aucun fichier à charger) :
    détonations en couches, écho de l'environnement, distance, murs qui étouffent le son */
 window.Snd = (function () {
-  let ctx = null, master = null, muffle = null, noise = null, verb = null, wetBus = null, vol = 0.6, amb = null, ambGain = null, ringG = null;
+  let ctx = null, master = null, muffle = null, noise = null, verb = null, wetBus = null, vol = 0.6, amb = null, ambGain = null, ringG = null, ambBase = 0.04, ambLevel = 1;
   const W = () => (window.CS ? CS.WEAPONS : {});
 
   // réponse d'impulsion : échos sur les murs + queue ouverte (extérieur)
@@ -101,12 +101,13 @@ window.Snd = (function () {
   return {
     init,
     setVolume(v) { vol = v; if (master) master.gain.value = v; },
+    setAmbientLevel(v) { ambLevel = v; if (ambGain) ambGain.gain.value = ambBase * ambLevel; },
     setAmbient(id) {
       if (!ctx) return;
       if (amb) { try { amb.stop(); } catch (e) {} amb = null; }
       amb = ctx.createBufferSource(); amb.buffer = noise; amb.loop = true;
       const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = id === 'docks' ? 300 : 520; f.Q.value = 0.4;
-      ambGain = ctx.createGain(); ambGain.gain.value = id === 'docks' ? 0.05 : 0.038;
+      ambBase = id === 'docks' ? 0.05 : 0.038; ambGain = ctx.createGain(); ambGain.gain.value = ambBase * ambLevel;
       const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.09; lg.gain.value = 200; lfo.connect(lg); lg.connect(f.frequency); lfo.start();
       amb.connect(f); f.connect(ambGain); ambGain.connect(muffle); amb.start();
     },

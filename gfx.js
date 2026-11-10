@@ -8,7 +8,7 @@ const QUALITIES = {
   med:  { label: 'Moyenne', ratio: 1.5, shadow: 2048, post: false, decor: 1,    tex: 512,  aniso: 8,  lights: true },
   high: { label: 'Haute',   ratio: 2,   shadow: 4096, post: true,  decor: 1,    tex: 1024, aniso: 16, lights: true }
 };
-let qname = 'med', Q = QUALITIES.med;
+let qname = 'med', Q = QUALITIES.med, renderScale = 1;
 try { const s = localStorage.getItem('cs_quality'); if (QUALITIES[s]) { qname = s; Q = QUALITIES[s]; } } catch (e) {}
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -218,9 +218,10 @@ function setQuality(name) {
   resize();
   if (cur.map) buildWorld(cur.map, true);
 }
+function setScale(s) { renderScale = clamp(+s || 1, 0.4, 1); }
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.ratio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.ratio) * renderScale);
   renderer.setSize(w, h, false);
   cam.aspect = w / h; cam.updateProjectionMatrix();
   const pr = renderer.getPixelRatio();
@@ -997,7 +998,7 @@ const fx = (function () {
 })();
 
 return {
-  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, sunDir, init, resize, setQuality, render, setVmCam, setVmSun, buildWorld, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
+  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
   get scene() { return scene; }, get cam() { return cam; }, get renderer() { return renderer; }, get vmScene() { return vmScene; }, get rays() { return cur.rays; }
 };
 })();

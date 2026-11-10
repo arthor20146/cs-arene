@@ -17,7 +17,7 @@
   <div id="hurtlow"></div>
   <div id="flash"></div>
   <div id="dmgdir"><i></i></div>
-  <div id="cross"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i></div>
+  <div id="cross" class="xh"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div id="hitm"></div>
 
   <div id="top">
@@ -35,6 +35,7 @@
   <div id="progw"><div id="prog"></div></div>
   <div id="spec"></div>
   <div id="chatlog"></div>
+  <div id="fps"></div>
 
   <div id="vitals">
     <div><div class="n" id="hpn">100</div><div class="l">SANTÉ</div></div>
@@ -60,59 +61,62 @@
   <button class="go ghost" id="buyClose">Fermer (B)</button>
 </div></div>
 
+<!-- Paramètres -->
+<div id="settings" class="ov hide" role="dialog" aria-modal="true" aria-label="Paramètres"><div class="card">
+  <div class="sethead"><h2>Paramètres</h2><button class="x" id="setX" type="button" aria-label="Fermer">&#x2715;</button></div>
+  <div class="setbody">
+    <nav class="settabs" id="setTabs"></nav>
+    <div class="setpane" id="setPane"></div>
+  </div>
+  <div class="setfoot">
+    <span id="setMsg"></span><span class="grow"></span>
+    <button type="button" id="setResetTab">Réinitialiser l'onglet</button>
+    <button type="button" id="setResetAll">Tout réinitialiser</button>
+    <button type="button" class="primary" id="setClose">Fermer</button>
+  </div>
+</div></div>
+
 <!-- Pause -->
 <div id="pause" class="ov hide"><div class="card">
   <h2>Partie en pause</h2>
   <p class="sub">Clique pour reprendre le contrôle de la souris.</p>
-  <label class="f">Sensibilité souris : <span id="sensv"></span></label>
-  <input type="range" id="sens" min="0.2" max="3" step="0.05">
-  <label class="f">Volume : <span id="volv"></span></label>
-  <input type="range" id="vol" min="0" max="1" step="0.05">
-  <label class="f">Qualité graphique</label>
-  <div class="teams qual">
-    <button data-q="low">Basse</button><button data-q="med">Moyenne</button><button data-q="high">Haute</button>
-  </div>
   <button class="go" id="resume">Reprendre</button>
+  <button class="go ghost" id="setPause">Paramètres</button>
   <button class="go ghost" id="leave">Quitter la partie</button>
 </div></div>
 
 <!-- Menu principal -->
-<div id="menu" class="ov"><div class="card">
-  <h1>CS ARENA</h1>
-  <p class="sub">Terroristes contre Anti-terroristes. Pose ou désamorce la bombe, achète tes armes, gagne les manches.</p>
-  <label class="f">Pseudo</label>
-  <input type="text" id="name" maxlength="16" placeholder="Ton pseudo" autocomplete="off">
-  <label class="f">Salle (partage le même code avec tes amis)</label>
-  <input type="text" id="room" maxlength="16" placeholder="main" autocomplete="off">
-  <label class="f">Équipe</label>
-  <div class="teams" id="teams">
-    <button data-t="auto" class="on">Auto</button>
-    <button data-t="T">Terroristes</button>
-    <button data-t="CT">Anti-terroristes</button>
+<div id="menu" class="ov"><div class="mwrap">
+  <div class="rail">
+    <div class="brand"><span>CS</span><h1>ARENA</h1><p>T contre CT · pose ou désamorce la bombe</p></div>
+    <nav>
+      <button class="nav on" id="navPlay">JOUER</button>
+      <button class="nav" id="setMenu">PARAMÈTRES</button>
+    </nav>
   </div>
-  <label class="f">Carte (choisie par celui qui crée la salle)</label>
-  <div class="teams maps" id="maps">
-    <button data-m="dust">Dust</button>
-    <button data-m="docks">Docks</button>
-    <button data-m="medina">Médina</button>
-    <button data-m="cargo">Cargo</button>
-  </div>
-  <label class="f">Qualité graphique (Basse pour les petits PC)</label>
-  <div class="teams qual">
-    <button data-q="low">Basse</button><button data-q="med">Moyenne</button><button data-q="high">Haute</button>
-  </div>
-  <button class="go" id="play">Jouer</button>
-  <div class="err" id="err"></div>
-  <div class="keys">
-    <b>Z Q S D</b><span>Se déplacer (W A S D sur QWERTY)</span>
-    <b>Souris</b><span>Clic gauche : tirer · clic droit : viser · lunette (Maj retient le souffle)</span>
-    <b>Espace · C ou Ctrl · Maj</b><span>Sauter · s'accroupir · marcher</span>
-    <b>R · 1 2 3 · Molette</b><span>Recharger · changer d'arme</span>
-    <b>Q</b><span>Jeter son arme au sol</span>
-    <b>B</b><span>Boutique (début de manche)</span>
-    <b>E</b><span>Prendre une arme au sol · maintenu : poser / désamorcer la bombe</span>
-    <b>M</b><span>Afficher ou fermer la carte</span>
-    <b>Tab · Entrée</b><span>Scores · chat</span>
+  <div class="mpanel">
+    <div class="mhead"><h2>NOUVELLE PARTIE</h2><span class="chip">MODE · BOMBE</span></div>
+    <div class="sec">CARTE</div>
+    <div class="cards maps" id="maps">
+      <button data-m="dust" style="--c:#d9a441"><b>DUST</b><small>Désert · classique</small></button>
+      <button data-m="docks" style="--c:#4aa3c7"><b>DOCKS</b><small>Port · conteneurs</small></button>
+      <button data-m="medina" style="--c:#c9684a"><b>MÉDINA</b><small>Ruelles · couvert</small></button>
+      <button data-m="cargo" style="--c:#8ccf4d"><b>CARGO</b><small>Hangar · industriel</small></button>
+    </div>
+    <div class="sec">ÉQUIPE</div>
+    <div class="cards teams" id="teams">
+      <button data-t="auto" class="on"><b>AUTO</b><small>Équilibrage automatique</small></button>
+      <button data-t="T"><b>TERRORISTES</b><small>Pose la bombe</small></button>
+      <button data-t="CT"><b>ANTI-TERRORISTES</b><small>Désamorce la bombe</small></button>
+    </div>
+    <div class="sec">JOUEUR</div>
+    <div class="fields">
+      <div><label class="f">PSEUDO</label><input type="text" id="name" maxlength="16" placeholder="Ton pseudo" autocomplete="off"></div>
+      <div><label class="f">SALLE (même code que tes amis)</label><input type="text" id="room" maxlength="16" placeholder="main" autocomplete="off"></div>
+    </div>
+    <button class="go big" id="play">JOUER</button>
+    <div class="err" id="err"></div>
+    <details class="khelp"><summary>Voir les touches</summary><div class="keys" id="keysHelp"></div></details>
   </div>
 </div></div>
 
@@ -121,6 +125,7 @@
 <script src="audio.js"></script>
 <script src="gfx.js"></script>
 <script src="models.js"></script>
+<script src="settings.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

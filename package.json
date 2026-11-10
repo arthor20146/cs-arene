@@ -2,14 +2,55 @@
   "name": "cs-arena",
   "version": "2.0.0",
   "description": "CS Arena - FPS tactique T vs CT (bombe, économie, manches) jouable dans le navigateur en multijoueur",
-  "main": "server.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "app": "electron .",
+    "dist": "electron-builder --win portable"
   },
-  "engines": { "node": ">=18" },
-  "keywords": ["fps", "counter-strike", "threejs", "webgl", "multiplayer"],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "fps",
+    "counter-strike",
+    "threejs",
+    "webgl",
+    "multiplayer"
+  ],
   "license": "MIT",
   "dependencies": {
     "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.csarena.game",
+    "productName": "CS Arena",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "server.js",
+      "index.html",
+      "style.css",
+      "game.js",
+      "settings.js",
+      "shared.js",
+      "audio.js",
+      "gfx.js",
+      "models.js",
+      "three.min.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "CS-Arena.exe"
+    }
   }
 }
