@@ -44,6 +44,8 @@ class Room {
     this.nextId = 1;
     this.nextDrop = 1;
     this.snapN = 0;
+    this.lobby = false;   // salle en mode lobby : la partie démarre quand l'hôte la lance
+    this.host = 0;
     this.resetMatch();
     this.timer = setInterval(() => this.tick(), CFG.tick);
   }
@@ -371,7 +373,7 @@ class Room {
     if (this.players.size === 0) { clearInterval(this.timer); rooms.delete(this.name); return; }
 
     if (this.phase === 'wait') {
-      if (this.players.size >= CFG.minPlayers) this.startRound();
+      if (!this.lobby && this.players.size >= CFG.minPlayers) this.startRound();
     } else if (this.phase === 'freeze') {
       this.autoPickup();
       if (now >= this.phaseEnd) { this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000; }
@@ -458,6 +460,7 @@ class Room {
       type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
       b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl
     };
+    if (this.lobby) { common.lb = 1; common.ho = this.host; }
     // armes au sol : à chaque changement, et chaque seconde pour ceux qui arrivent
     if (this.dropsDirty || ++this.snapN >= 20) {
       common.dp = this.drops.map((d) => ({ i: d.i, w: d.w, x: d.x, y: d.y, z: d.z, r: d.r, ox: d.ox, oy: d.oy, oz: d.oz, n: now - d.at < 500 ? 1 : 0, m: d.mag, s: d.res }));
@@ -526,8 +529,13 @@ class Room {
         this.swapDrop(p); // la bombe reste prioritaire sur E
         break;
       }
+      case 'start': {
+        if (this.lobby && this.phase === 'wait' && p.id === this.host && this.players.size >= CFG.minPlayers) this.startRound();
+        break;
+      }
       case 'team': {
         const want = this.chooseTeam(p, m.team);
+        if (this.lobby && this.phase === 'wait') { p.team = want; break; }   // dans le lobby : changement immédiat
         if (!p.team) { p.team = want; }
         else if (want !== p.team) { p.pending = want; send(p.ws, { type: 'msg', text: 'Changement d\'équipe à la prochaine manche', kind: 'info' }); }
         break;
@@ -557,6 +565,7 @@ class Room {
       k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}, bought: {}
     };
     this.players.set(id, p);
+    if (this.lobby && !this.host) this.host = id;
     p.team = this.chooseTeam(p, want);
     this.resetLoadout(p, true);
     // arrivée en cours de phase d'achat : on le fait apparaître directement
@@ -572,6 +581,7 @@ class Room {
       this.bomb.s = 'dropped'; this.bomb.c = null; this.bomb.x = p.x; this.bomb.z = p.z;
     }
     this.players.delete(p.id);
+    if (this.host === p.id) this.host = this.players.size ? this.players.keys().next().value : 0;   // l'hôte part : le plus ancien joueur reprend
     this.bcast({ type: 'leave', id: p.id });
     this.checkEnd(Date.now());
   }
@@ -590,7 +600,7 @@ wss.on('connection', (ws) => {
       if (m.type !== 'join') return;
       const rn = String(m.room || 'main').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16) || 'main';
       let r = rooms.get(rn);
-      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : ''); rooms.set(rn, r); }
+      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : ''); r.lobby = m.lobby === 1 || m.lobby === true; rooms.set(rn, r); }
       if (r.players.size >= CFG.maxPlayers) { send(ws, { type: 'err', text: 'Salle pleine (' + CFG.maxPlayers + ' joueurs max)' }); return; }
       const name = String(m.name || 'Joueur').replace(/[\u0000-\u001f<>]/g, '').slice(0, 16).trim() || 'Joueur';
       room = r;
