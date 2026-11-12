@@ -105,6 +105,7 @@ class Room {
     this.dropsDirty = true;
     if (p.inv.primary === id) p.inv.primary = null; else if (p.inv.secondary === id) p.inv.secondary = null;
     delete p.am[id];
+    if (p.bought) delete p.bought[id];          // une arme jetée n'est plus remboursable
     if (p.inv.cur === id) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
   }
   takeDrop(p, d, manual) {
@@ -186,7 +187,7 @@ class Room {
     this.all().forEach((p) => { p.rk = 0; });
     const idx = { T: 0, CT: 0 };
     this.all().forEach((p) => {
-      p.am = {};
+      p.am = {}; p.bought = {};
       if (fullReset) { p.survived = false; this.resetLoadout(p, true); }
       else if (!p.survived) this.resetLoadout(p, false);
       this.spawnPlayer(p, idx[p.team]++);
@@ -342,6 +343,19 @@ class Room {
     if (w.slot === 1) p.inv.primary = item; else p.inv.secondary = item;
     p.inv.cur = item;
     delete p.am[item];                         // arme neuve : munitions pleines
+    p.bought[item] = w.price;                  // achetée à cette manche : revendable tant que la boutique est ouverte
+  }
+
+  // revente d'une arme achetée pendant cette manche (remboursement intégral)
+  sell(p, item) {
+    const now = Date.now();
+    const open = p.alive && (this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000));
+    if (!open || !p.bought || !p.bought[item]) return;
+    if (p.inv.primary !== item && p.inv.secondary !== item) return;
+    p.money = Math.min(CFG.maxMoney, p.money + p.bought[item]);
+    delete p.bought[item]; delete p.am[item];
+    if (p.inv.primary === item) p.inv.primary = null; else p.inv.secondary = null;
+    if (p.inv.cur === item) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
   }
 
   // la bombe est posée 0,55 m devant le joueur (à ses pieds si un mur gêne)
@@ -453,7 +467,8 @@ class Room {
       common.me = {
         hp: Math.max(0, p.hp), ar: Math.round(p.armor), he: p.helmet ? 1 : 0, mo: p.money, p: p.inv.primary, s: p.inv.secondary,
         k: p.kit ? 1 : 0, bm: b.s === 'carried' && b.c === p.id ? 1 : 0, pg: r2(Math.min(1, p.pg || 0)),
-        al: p.alive ? 1 : 0, bo: buyOpen && p.alive ? 1 : 0, t: p.team
+        al: p.alive ? 1 : 0, bo: buyOpen && p.alive ? 1 : 0, t: p.team,
+        sl: buyOpen && p.alive ? Object.keys(p.bought).filter((id) => p.inv.primary === id || p.inv.secondary === id) : []
       };
       send(p.ws, common);
     });
@@ -493,6 +508,7 @@ class Room {
         break;
       }
       case 'buy': if (typeof m.item === 'string') this.buy(p, m.item); break;
+      case 'sell': if (typeof m.item === 'string') this.sell(p, m.item); break;
       case 'act': {
         if (!m.on) { p.act = null; p.pg = 0; return; }
         if (!p.alive) return;
@@ -538,7 +554,7 @@ class Room {
     const p = {
       id, ws, name, team: null, pending: null, alive: false, hp: 100, armor: 0, kit: false, money: CFG.startMoney,
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
-      k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}
+      k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, alive_ws: true, rl: 0, am: {}, bought: {}
     };
     this.players.set(id, p);
     p.team = this.chooseTeam(p, want);

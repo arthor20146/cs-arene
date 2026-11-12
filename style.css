@@ -46,7 +46,8 @@ input[type=range]{width:100%;accent-color:var(--t)}
 .xh .l,.xh .r{width:var(--cl,7px);height:var(--ct,2px);margin-top:calc(var(--ct,2px) / -2)}
 .xh .l{margin-left:calc(var(--cl,7px) * -1)}
 .xh .dot{display:none;width:calc(var(--ct,2px) + 1px);height:calc(var(--ct,2px) + 1px);margin:calc((var(--ct,2px) + 1px) / -2) 0 0 calc((var(--ct,2px) + 1px) / -2);border-radius:50%}
-.xh.hasdot .dot{display:block}
+.xh.hasdot .dot,.xh.nolines .dot{display:block}
+.xh.nolines .u,.xh.nolines .d,.xh.nolines .l,.xh.nolines .r{display:none}
 #hitm{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;opacity:0}
 #hitm:before,#hitm:after{content:'';position:absolute;left:12px;top:4px;width:2px;height:18px;background:#fff;transform:rotate(45deg);opacity:.8}
 #hitm:after{transform:rotate(-45deg)}
@@ -111,6 +112,10 @@ input[type=range]{width:100%;accent-color:var(--t)}
 .item .pr{color:#9be564;margin-top:3px}
 .item .st{font-size:12px;color:var(--dim);margin-top:3px}
 .item.own{border-color:var(--ok)}
+.sellb{background:#14100c;border:1px solid #8a5a2a;padding:10px;color:var(--txt);text-align:left}
+.sellb:hover{border-color:#ff9a3c}
+.sellb .nm{font-size:16px;font-weight:bold}
+.sellb .pr{color:#ff9a3c;margin-top:3px}
 
 /* ---------- Tableau des scores ---------- */
 #board{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,94vw);background:var(--panel);border:1px solid var(--line);z-index:20;padding:14px 18px}

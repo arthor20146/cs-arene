@@ -29,7 +29,7 @@ const ACTIONS = [
 const DEF = {
   sens: 1, adsSens: 1, invertY: false, toggleAim: false, toggleCrouch: false,
   fov: 68, renderScale: 1, shake: 1, bob: 1, autoFs: true, fps: false,
-  crossColor: '#7dff7d', crossThick: 2, crossLen: 7, crossDot: false, crossOpacity: 1,
+  crossColor: '#7dff7d', crossThick: 2, crossLen: 7, crossLines: true, crossDot: false, crossOpacity: 1,
   vol: 0.6, ambient: 1, hitSound: true, muteBg: false,
   radar: true, radarSize: 170, hitmarker: true, feed: true, chatlog: true
 };
@@ -62,7 +62,8 @@ const TABS = [
     { key: 'crossThick', t: 'range', n: 'Épaisseur', min: 1, max: 6, step: 1, fmt: (v) => v + ' px' },
     { key: 'crossLen', t: 'range', n: 'Longueur des branches', min: 2, max: 20, step: 1, fmt: (v) => v + ' px' },
     { key: 'crossOpacity', t: 'range', n: 'Opacité', min: 0.3, max: 1, step: 0.05, fmt: pct },
-    { key: 'crossDot', t: 'toggle', n: 'Point central' }
+    { key: 'crossLines', t: 'toggle', n: 'Branches du réticule', d: 'Désactivé : seul le point central reste affiché.' },
+    { key: 'crossDot', t: 'toggle', n: 'Point central', d: 'Toujours affiché quand les branches sont désactivées.' }
   ] },
   { id: 'audio', n: 'Audio', rows: [
     { key: 'vol', t: 'range', n: 'Volume général', min: 0, max: 1, step: 0.05, fmt: pct },
@@ -172,6 +173,7 @@ function applyCrosshair(el) {
   el.style.setProperty('--cl', cfg.crossLen + 'px');
   el.style.setProperty('--co', String(cfg.crossOpacity));
   el.classList.toggle('hasdot', !!cfg.crossDot);
+  el.classList.toggle('nolines', !cfg.crossLines);
 }
 
 /* ---------- aide des touches (menu principal) ---------- */

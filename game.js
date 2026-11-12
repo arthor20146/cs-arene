@@ -909,11 +909,25 @@ function buyItems() {
 let buySig = '';
 function renderBuy(force) {
   const me = S.me; if (!me) return;
-  const sig = [me.mo, me.p, me.s, me.ar, me.he, me.k, me.bo, myTeam].join('|');
+  const sig = [me.mo, me.p, me.s, me.ar, me.he, me.k, me.bo, myTeam, (me.sl || []).join(',')].join('|');
   if (!force && sig === buySig) return;
   buySig = sig;
   $('buyMoney').textContent = '$' + me.mo;
   const body = $('buyBody'); body.textContent = '';
+  // armes achetées à cette manche : revendables au prix payé tant que la boutique est ouverte
+  if (me.sl && me.sl.length && me.bo) {
+    const g = document.createElement('div'); g.className = 'grp'; g.textContent = 'Revendre (achetées à cette manche)'; body.appendChild(g);
+    const wrap = document.createElement('div'); wrap.className = 'items'; body.appendChild(wrap);
+    me.sl.forEach((id) => {
+      const w = WEAPONS[id]; if (!w) return;
+      const b = document.createElement('button'); b.className = 'sellb';
+      const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = w.n;
+      const pr = document.createElement('div'); pr.className = 'pr'; pr.textContent = 'Vendre · +$' + w.price;
+      b.append(nm, pr); b.dataset.id = id;
+      b.addEventListener('click', () => doSell(id));
+      wrap.appendChild(b);
+    });
+  }
   let n = 0;
   buyItems().forEach(([title, ids]) => {
     const g = document.createElement('div'); g.className = 'grp'; g.textContent = title; body.appendChild(g);
@@ -938,6 +952,7 @@ function renderBuy(force) {
     });
   });
 }
+function doSell(id) { send({ type: 'sell', item: id }); Snd.buy(); setTimeout(() => { if (ui.buy) renderBuy(true); }, 150); }
 function doBuy(id) { send({ type: 'buy', item: id }); Snd.buy(); setTimeout(() => { if (ui.buy) renderBuy(); }, 150); }
 function openBuy() {
   if (!alive()) return;
@@ -1108,7 +1123,7 @@ function applySetting(k, v) {
     case 'feed': $('hud').classList.toggle('nofeed', !cfg.feed); break;
     case 'chatlog': $('hud').classList.toggle('nochat', !cfg.chatlog); break;
     case 'fps': $('fps').textContent = ''; fpsN = 0; fpsT = performance.now(); break;
-    case 'crossColor': case 'crossThick': case 'crossLen': case 'crossOpacity': case 'crossDot': Settings.applyCrosshair($('cross')); break;
+    case 'crossColor': case 'crossThick': case 'crossLen': case 'crossOpacity': case 'crossDot': case 'crossLines': Settings.applyCrosshair($('cross')); break;
     case 'binds': if (document.fullscreenElement) lockKeys(); break;
     case 'test': Snd.init(); applyVolume(); Snd.setAmbientLevel(cfg.ambient); Snd.shot('ak47', 1, 0, { wet: 0.5 }); break;
   }
