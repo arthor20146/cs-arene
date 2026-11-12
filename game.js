@@ -44,7 +44,8 @@ function setMap(id) {
    État
    ============================================================ */
 let ws = null, myId = null, myTeam = null, connected = false, locked = false;
-let joinInfo = { name: '', room: 'main', team: 'auto', map: 'dust' };
+let joinInfo = { name: '', room: 'main', team: 'auto', map: 'dust', lobby: false };
+function inLobby() { return connected && S.lb === 1 && S.ph === 'wait'; }
 const S = { ph: 'wait', te: 0, rd: 0, sc: { T: 0, CT: 0 }, b: { s: 'none', x: 0, z: 0 }, pl: new Map(), me: null, recv: 0, names: new Map() };
 const ui = { buy: false, chat: false, board: false, map: false };
 const K = {};
@@ -624,7 +625,7 @@ function connect() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   $('err').textContent = '';
   try { ws = new WebSocket(url); } catch (e) { $('err').textContent = 'Connexion impossible.'; return; }
-  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map });
+  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map, lobby: joinInfo.lobby ? 1 : 0 });
   ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (connected) { connected = false; leaveToMenu('Connexion au serveur perdue.'); }
@@ -634,7 +635,8 @@ function connect() {
 }
 
 function leaveToMenu(text) {
-  connected = false; S.me = null;
+  connected = false; S.me = null; S.lb = 0; lbSig = '';
+  $('lobby').classList.add('hide');
   remotes.forEach((r, id) => removeRemote(id));
   syncDrops([]);
   ui.map = false; $('bigmap').classList.add('hide');
@@ -651,7 +653,8 @@ function onMsg(m) {
       myId = m.id; myTeam = null; connected = true; S.me = null; setMap(m.map); ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
       $('play').disabled = false;
       buildVM(cur);
-      tryLock();
+      S.lb = joinInfo.lobby ? 1 : 0; S.ph = 'wait';
+      if (!joinInfo.lobby) tryLock();
       break;
     case 'err': $('err').textContent = m.text; $('play').disabled = false; try { ws.close(); } catch (e) {} break;
     case 'snap': onSnap(m); break;
@@ -674,19 +677,22 @@ function onMsg(m) {
 
 function onSnap(m) {
   const prev = S.me, pb = S.b.s;
+  const wasLobby = inLobby();
+  S.lb = m.lb ? 1 : 0; S.ho = m.ho || 0; S.lc = m.lc || 0;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
   if (m.mp && m.mp !== MAP.id) setMap(m.mp);
   if (m.dp) syncDrops(m.dp);
   const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
-  if (oldTeam && myTeam && oldTeam !== myTeam) {
+  const lob = inLobby();
+  if (!lob && oldTeam && myTeam && oldTeam !== myTeam) {
     banner('MI-TEMPS', '#ffffff', 'Tu joues maintenant ' + teamName(myTeam) + ' · ton score te suit', 4000);
   }
   S.pl = new Map();
   const seen = new Set();
   for (const e of m.pl) {
     S.pl.set(e.i, e); S.names.set(e.i, { n: e.n, t: e.t });
-    if (e.i === myId) continue;
+    if (e.i === myId || lob) continue;
     seen.add(e.i);
     let r = remotes.get(e.i);
     if (!r) { r = makeRemote(e); remotes.set(e.i, r); }
@@ -699,6 +705,8 @@ function onSnap(m) {
   }
   remotes.forEach((r, id) => { if (!seen.has(id)) removeRemote(id); });
 
+  if (lob) { if (document.pointerLockElement) document.exitPointerLock(); renderLobby(m); }
+  else if (wasLobby) { $('lobby').classList.add('hide'); lbSig = ''; tryLock(); }
   if (pb !== 'planted' && m.b.s === 'planted') Snd.plant();
   if (pb === 'planted' && m.b.s === 'exploded') explosionFx();
   if (pb === 'planted' && m.b.s === 'defused') Snd.defused();
@@ -890,6 +898,12 @@ function banner(text, color, sub, ms) {
 function notice(text, color) { const n = $('notice'); n.textContent = text; n.style.color = color || '#ffd65a'; noticeTimer = 3.5; }
 
 function addChat(m) {
+  if (inLobby()) {
+    const r = document.createElement('div'), a = document.createElement('span'), b = document.createElement('span');
+    a.className = 't' + m.t; a.textContent = m.n + ': '; b.textContent = m.x; r.append(a, b);
+    const l = $('lchat'); l.appendChild(r); while (l.children.length > 40) l.removeChild(l.firstChild); l.scrollTop = l.scrollHeight;
+    return;
+  }
   const row = document.createElement('div');
   const a = document.createElement('span'); a.className = 't' + m.t; a.textContent = m.n + ': ';
   const b = document.createElement('span'); b.textContent = m.x;
@@ -1037,6 +1051,7 @@ function closeChat() { ui.chat = false; chatIn.classList.add('hide'); chatIn.blu
 
 document.addEventListener('keydown', (e) => {
   if (!connected) return;
+  if (inLobby()) { if (e.code === 'Escape' && document.activeElement !== $('lbIn')) leaveLobby(); return; }
   if (ui.chat) {
     if (e.code === 'Enter') { const t = chatIn.value.trim(); if (t) send({ type: 'chat', text: t }); closeChat(); }
     else if (e.code === 'Escape') closeChat();
@@ -1098,10 +1113,12 @@ function startGame() {
   const name = $('name').value.trim() || 'Joueur' + Math.floor(Math.random() * 900 + 100);
   const room = $('room').value.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'main';
   store.set('cs_name', $('name').value.trim()); store.set('cs_room', $('room').value.trim()); store.set('cs_team', chosenTeam);
-  joinInfo = { name, room, team: chosenTeam, map: chosenMap };
+  store.set('cs_lobby', $('lobbyChk').checked ? '1' : '0');
+  joinInfo = { name, room, team: chosenTeam, map: chosenMap, lobby: $('lobbyChk').checked };
   $('play').disabled = true; $('err').textContent = 'Connexion…';
   connect();
 }
+$('lobbyChk').checked = store.get('cs_lobby', '1') !== '0';
 $('play').addEventListener('click', startGame);
 $('name').addEventListener('keydown', (e) => { if (e.code === 'Enter') startGame(); });
 $('room').addEventListener('keydown', (e) => { if (e.code === 'Enter') startGame(); });
@@ -1307,10 +1324,67 @@ function renderBoard() {
   });
 }
 
+
+/* ============================================================
+   Lobby
+   ============================================================ */
+let lbSig = '';
+function leaveLobby() { leaving = true; try { ws.close(); } catch (e) {} location.reload(); }
+$('lbBack').addEventListener('click', leaveLobby);
+$('lbJoinT').addEventListener('click', () => send({ type: 'team', team: 'T' }));
+$('lbJoinCT').addEventListener('click', () => send({ type: 'team', team: 'CT' }));
+$('lbReady').addEventListener('click', () => { const on = !(S.pl && S.pl.get(myId) && S.pl.get(myId).rdy); send({ type: 'ready', on: on ? 1 : 0 }); });
+$('lbStart').addEventListener('click', () => send({ type: 'start' }));
+$('lbIn').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.code === 'Enter') { const t = $('lbIn').value.trim(); if (t) send({ type: 'chat', text: t }); $('lbIn').value = ''; }
+  else if (e.code === 'Escape') $('lbIn').blur();
+});
+function renderLobby(m) {
+  const lobby = $('lobby'); lobby.classList.remove('hide');
+  const host = S.ho, isHost = host === myId, list = m.pl.slice();
+  const sig = JSON.stringify([list.map((e) => [e.i, e.n, e.t, e.rdy]), host, m.mp, Math.ceil(S.lc || 0)]);
+  if (sig === lbSig) return; lbSig = sig;
+  const mine = (list.find((e) => e.i === myId) || {}).t, meRdy = !!(list.find((e) => e.i === myId) || {}).rdy;
+  $('lbRoom').textContent = 'SALLE « ' + (joinInfo.room || '') + ' »';
+  // cartes
+  const mp = $('lbMaps'); mp.innerHTML = '';
+  Object.keys(MAPS).forEach((id) => {
+    const b = document.createElement('button'); b.className = id === m.mp ? 'on' : ''; b.disabled = !isHost;
+    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = MAPS[id].name.toUpperCase(); b.lastChild.textContent = isHost ? '' : (id === m.mp ? 'choisie par l\u2019hôte' : '');
+    b.addEventListener('click', () => send({ type: 'lmap', map: id }));
+    mp.appendChild(b);
+  });
+  // équipes
+  ['T', 'CT'].forEach((t) => {
+    const box = $(t === 'T' ? 'lbT' : 'lbCT'); box.innerHTML = '';
+    const mem = list.filter((e) => e.t === t);
+    for (let i = 0; i < 5; i++) {
+      const e = mem[i], d = document.createElement('div'); d.className = 'slot' + (e ? '' : ' free') + (e && e.i === myId ? ' me' : '');
+      if (!e) d.textContent = '— place libre —';
+      else {
+        const n = document.createElement('span'); n.textContent = (e.i === host ? '★ ' : '') + e.n + (e.i === myId ? ' (toi)' : ''); d.appendChild(n);
+        const s = document.createElement('em'); s.textContent = e.rdy ? 'PRÊT' : '…'; if (e.rdy) s.className = 'ok'; d.appendChild(s);
+        if (isHost && e.i !== myId) { const k = document.createElement('button'); k.textContent = '✕'; k.title = 'Expulser'; k.addEventListener('click', () => send({ type: 'kick', id: e.i })); d.appendChild(k); }
+      }
+      box.appendChild(d);
+    }
+  });
+  $('lbJoinT').style.display = mine === 'T' ? 'none' : ''; $('lbJoinCT').style.display = mine === 'CT' ? 'none' : '';
+  $('lbCount').textContent = list.length + '/10';
+  // bas
+  const everyone = list.length > 0 && list.every((e) => e.rdy);
+  $('lbMode').textContent = 'BOMBE · ' + ((MAPS[m.mp] || {}).name || '').toUpperCase();
+  $('lbWait').textContent = list.length < 2 ? 'SEUL DANS LE LOBBY · INVITE TES AMIS OU LANCE' : everyone ? 'TOUT LE MONDE EST PRÊT' : 'EN ATTENTE DES JOUEURS PRÊTS…';
+  $('lbCountdown').textContent = S.lc > 0 ? 'LA PARTIE COMMENCE DANS ' + Math.ceil(S.lc) + '…' : '';
+  const rb = $('lbReady'); rb.textContent = meRdy ? 'ANNULER' : 'PRÊT'; rb.classList.toggle('on', !meRdy);
+  const sb = $('lbStart'); sb.style.display = isHost ? '' : 'none'; sb.disabled = false;
+}
+
 function refreshOverlays() {
   $('menu').classList.toggle('hide', connected);
-  $('hud').classList.toggle('hide', !connected);
-  $('pause').classList.toggle('hide', !(connected && !locked && !ui.buy));
+  $('hud').classList.toggle('hide', !connected || inLobby());
+  $('pause').classList.toggle('hide', !(connected && !locked && !ui.buy && !inLobby()));
   $('scope').style.display = scoped && alive() ? 'block' : 'none';
   $('cross').style.display = scoped || aiming || !alive() || cur === 'knife' ? 'none' : 'block';
 }
@@ -1474,7 +1548,7 @@ function frame(t) {
   if (cfg.fps) { fpsN++; if (t - fpsT >= 500) { $('fps').textContent = Math.round(fpsN * 1000 / (t - fpsT)) + ' FPS'; fpsN = 0; fpsT = t; } }
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   const now = t / 1000;
-  if (connected && S.me) {
+  if (connected && S.me && !inLobby()) {
     update(dt, now);
     updateRemotes(dt); updateBomb(dt, t); updateDrops(dt);
     fx.update(dt, (p) => { const s = spatial(p.x, p.y, p.z); if (s.d < 8) Snd.casing(s.v); });

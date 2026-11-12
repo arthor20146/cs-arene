@@ -114,11 +114,35 @@
       <div><label class="f">PSEUDO</label><input type="text" id="name" maxlength="16" placeholder="Ton pseudo" autocomplete="off"></div>
       <div><label class="f">SALLE (même code que tes amis)</label><input type="text" id="room" maxlength="16" placeholder="main" autocomplete="off"></div>
     </div>
+    <label class="chk"><input type="checkbox" id="lobbyChk"> Passer par le lobby (attendre les joueurs, PRÊT, lancer la partie)</label>
     <button class="go big" id="play">JOUER</button>
     <div class="err" id="err"></div>
     <details class="khelp"><summary>Voir les touches</summary><div class="keys" id="keysHelp"></div></details>
   </div>
 </div></div>
+
+
+<!-- Lobby -->
+<div id="lobby" class="hide">
+  <div class="lb-top">
+    <button id="lbBack" title="Quitter">‹</button><b class="lb-logo">CS ARENA</b>
+    <span class="lb-tab on">JOUER</span><span class="lb-room" id="lbRoom"></span>
+  </div>
+  <div class="lb-left">
+    <div class="lb-p"><h4>CARTE</h4><div id="lbMaps"></div></div>
+    <div class="lb-p lb-chat"><h4>DISCUSSION</h4><div id="lchat"></div><input type="text" id="lbIn" maxlength="120" placeholder="Écrire à la salle…" autocomplete="off"></div>
+    <div class="lb-mode"><b id="lbMode">BOMBE</b><small id="lbWait"></small><small class="esc">ÉCHAP · QUITTER</small></div>
+  </div>
+  <div class="lb-right">
+    <div class="lb-p"><h4>VOTRE ESCOUADE <span id="lbCount"></span></h4>
+      <div class="lb-team tT"><i>TERRORISTES</i><div id="lbT"></div><button id="lbJoinT">Rejoindre cette équipe</button></div>
+      <div class="lb-team tCT"><i>ANTI-TERRORISTES</i><div id="lbCT"></div><button id="lbJoinCT">Rejoindre cette équipe</button></div>
+    </div>
+    <div class="lb-count" id="lbCountdown"></div>
+    <button class="go" id="lbReady">PRÊT</button>
+    <button class="go ghost" id="lbStart">LANCER MAINTENANT</button>
+  </div>
+</div>
 
 <script src="three.min.js"></script>
 <script src="shared.js"></script>
