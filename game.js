@@ -1153,7 +1153,7 @@ $('navPlay').addEventListener('click', () => $('name').focus());
 $('setPause').addEventListener('click', () => Settings.open());
 $('resume').addEventListener('click', tryLock);
 $('pause').addEventListener('click', (e) => { if (e.target === $('pause')) tryLock(); });
-$('leave').addEventListener('click', () => { leaving = true; try { ws.close(); } catch (e) {} location.reload(); });
+$('leave').addEventListener('click', () => { leaving = true; try { sessionStorage.setItem('cs_menu', '1'); } catch (e) {} try { ws.close(); } catch (e) {} location.reload(); });
 
 /* ============================================================
    HUD
@@ -1329,7 +1329,7 @@ function renderBoard() {
    Lobby
    ============================================================ */
 let lbSig = '';
-function leaveLobby() { leaving = true; try { ws.close(); } catch (e) {} location.reload(); }
+function leaveLobby() { leaving = true; try { sessionStorage.setItem('cs_menu', '1'); } catch (e) {} try { ws.close(); } catch (e) {} location.reload(); }
 $('lbBack').addEventListener('click', leaveLobby);
 $('lbJoinT').addEventListener('click', () => send({ type: 'team', team: 'T' }));
 $('lbJoinCT').addEventListener('click', () => send({ type: 'team', team: 'CT' }));
@@ -1576,4 +1576,11 @@ function frame(t) {
 }
 buildVM('glock');
 requestAnimationFrame(frame);
+
+// à l'ouverture du site : direct dans le lobby (sauf si on vient de quitter volontairement)
+{
+  let skip = false;
+  try { skip = sessionStorage.getItem('cs_menu') === '1'; sessionStorage.removeItem('cs_menu'); } catch (e) {}
+  if (!skip) setTimeout(() => { $('lobbyChk').checked = true; startGame(); }, 300);
+}
 })();
