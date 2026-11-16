@@ -16,6 +16,7 @@
   <div id="hurt"></div>
   <div id="hurtlow"></div>
   <div id="flash"></div>
+  <div id="warp"></div>
   <div id="dmgdir"><i></i></div>
   <div id="cross" class="xh"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div id="hitm"></div>
@@ -95,13 +96,18 @@
     </nav>
   </div>
   <div class="mpanel">
-    <div class="mhead"><h2>NOUVELLE PARTIE</h2><span class="chip">MODE · BOMBE</span></div>
+    <div class="mhead"><h2>NOUVELLE PARTIE</h2><span class="chip" id="modeChip">MODE · BOMBE</span></div>
     <div class="sec">CARTE</div>
     <div class="cards maps" id="maps">
       <button data-m="dust" style="--c:#d9a441"><b>DUST</b><small>Désert · classique</small></button>
       <button data-m="docks" style="--c:#4aa3c7"><b>DOCKS</b><small>Port · conteneurs</small></button>
       <button data-m="medina" style="--c:#c9684a"><b>MÉDINA</b><small>Ruelles · couvert</small></button>
       <button data-m="cargo" style="--c:#8ccf4d"><b>CARGO</b><small>Hangar · industriel</small></button>
+    </div>
+    <div class="sec">MODE</div>
+    <div class="cards modes" id="modes">
+      <button data-mo=""><b>BOMBE</b><small>Classique · pose ou désamorce</small></button>
+      <button data-mo="desordre"><b>RIEN N'EST À SA PLACE</b><small>Transfuges, murs, scores, armes en désordre</small></button>
     </div>
     <div class="sec">ÉQUIPE</div>
     <div class="cards teams" id="teams">
@@ -130,6 +136,7 @@
   </div>
   <div class="lb-left">
     <div class="lb-p"><h4>CARTE</h4><div id="lbMaps"></div></div>
+    <div class="lb-p"><h4>MODE</h4><div id="lbModes"></div></div>
     <div class="lb-p lb-chat"><h4>DISCUSSION</h4><div id="lchat"></div><input type="text" id="lbIn" maxlength="120" placeholder="Écrire à la salle…" autocomplete="off"></div>
     <div class="lb-mode"><b id="lbMode">BOMBE</b><small id="lbWait"></small><small class="esc">ÉCHAP · QUITTER</small></div>
   </div>

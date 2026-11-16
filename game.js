@@ -35,6 +35,7 @@ function setMap(id) {
   const M = MAPS[id] || MAPS.dust;
   if (worldMeshes.length && M === MAP) return;
   MAP = M; BOXES = M.boxes; SITES = M.sites;
+  hiddenSig = ''; hiddenSet = new Set();
   worldMeshes = GFX.buildWorld(M);
   fx.clear();
   Snd.setAmbient(M.style || M.id);
@@ -57,6 +58,9 @@ let fireHeld = false, fireLatch = false, scoped = false, rmbHeld = false, aiming
 let specId = null, banTimer = 0, noticeTimer = 0, hitTimer = 0, dmgTimer = 0;
 let crouchTog = false, bgMuted = false, fpsN = 0, fpsT = 0;
 const remotes = new Map();
+// mode « Rien n'est à sa place »
+let tpSeq = 0, tpName = '', warpWarn = 0, warpHit = 0, glitchOn = false, warpOp = -1, hiddenSig = '', hiddenSet = new Set();
+let chosenMode = '';
 
 const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
 const alive = () => !!(S.me && S.me.al);
@@ -166,6 +170,54 @@ function updateBomb(dt, now) {
   ledT -= dt;
   bombLed.material.color.setRGB(ledT > 0 ? 12 : 0.16, 0.02, 0.02);
 }
+/* ============================================================
+   Mode « Rien n'est à sa place » : murs qui disparaissent, permutations, transfuges, armes bloquées
+   ============================================================ */
+const DZ = '#c99bff';
+// hb = indices des obstacles disparus (envoyés par le serveur)
+function applyHidden(hb, anim) {
+  const sig = (hb || []).join(',');
+  if (sig === hiddenSig) return;
+  const prev = hiddenSet; hiddenSig = sig; hiddenSet = new Set(hb || []);
+  BOXES = hiddenSet.size ? MAP.boxes.filter((b, i) => !hiddenSet.has(i)) : MAP.boxes;
+  worldMeshes = GFX.setHidden(hb, anim);
+  if (!anim) return;
+  MAP.boxes.forEach((b, i) => {
+    if (prev.has(i) === hiddenSet.has(i)) return;
+    const c = new THREE.Vector3(b.x, Math.min(b.h, 3) / 2, b.z);
+    fx.smoke(c, [0.5, 0.36, 0.78], 8, Math.max(b.w, b.d) * 0.6, 2.4, 1.6, 0.3);
+    fx.sparks(c, UP, 12);
+    const sp = spatial(b.x, 1, b.z); if (sp.d < 50) Snd.thud(sp.v, sp.pan, sp);
+  });
+}
+const jammed = (id) => { const w = WEAPONS[id]; return !!(S.jm && w && w.slot === S.jm.s); };
+function onTeleport(m) {
+  P.x = m.x; P.y = m.y; P.z = m.z; P.vx = P.vy = P.vz = 0; P.yaw = m.yaw; P.pitch = 0; P.recP = P.recY = 0;
+  P.ground = m.y < 0.05; P.landT = 0; P.burst = 0;
+  tpSeq = m.s; tpName = m.n || ''; scoped = false; fireLatch = false;
+}
+function onChaos(m) {
+  warpWarn = 0; warpHit = 0.9; Snd.warp();
+  P.shake = Math.max(P.shake, 0.22);
+  const key = Settings.key;
+  if (m.k === 'teams') {
+    const ns = m.ns || [];
+    if ((m.ids || []).indexOf(myId) >= 0) streak('TU CHANGES DE CAMP', 'Jusqu\'à la fin de la manche · tes coéquipiers sont maintenant tes ennemis', DZ);
+    else streak('TRANSFUGES', ns.slice(0, -1).join(', ') + ' et ' + ns[ns.length - 1] + ' changent de camp', DZ);
+  } else if (m.k === 'score') streak('SCORES INVERSÉS', 'Les points des deux camps ont été échangés', DZ);
+  else if (m.k === 'walls') {
+    applyHidden(m.hb, true);
+    const t = [m.off ? m.off + ' mur' + (m.off > 1 ? 's ont disparu' : ' a disparu') : '', m.on ? m.on + (m.on > 1 ? ' sont revenus' : ' est revenu') : ''].filter(Boolean).join(' · ');
+    streak('LES MURS BOUGENT', t, DZ);
+  } else if (m.k === 'jam') {
+    streak(m.s === 1 ? 'ARMES PRINCIPALES BLOQUÉES' : 'PISTOLETS BLOQUÉS', 'Pendant ' + m.t + ' s · ' + (m.s === 1 ? 'sors ton pistolet (' + key('slot2') + ')' : 'prends ton arme principale (' + key('slot1') + ')'), DZ);
+  } else if (m.k === 'swap') {
+    remotes.forEach((r) => { r.init = false; });   // les autres joueurs sautent à leur nouvelle place
+    streak('PERMUTATION', alive() && tpName ? 'Tu as pris la place de ' + tpName : m.all ? 'Tout le monde a changé de place' : m.n + ' joueurs ont échangé leur place', DZ);
+    tpName = '';
+  } else if (m.k === 'invert') streak('COMMANDES INVERSÉES', 'Avant et arrière, gauche et droite sont échangés pendant ' + m.t + ' s', DZ);
+}
+
 function explosionFx() {
   const b = S.b;
   const pos = new THREE.Vector3(b.x, 0.8, b.z);
@@ -508,6 +560,7 @@ function spreadNow(w) {
 function fire() {
   const w = WEAPONS[cur], a = ammo[cur], now = performance.now() / 1000;
   if (now < nextShot || swapT > 0.05) return false;
+  if (jammed(cur)) { nextShot = now + 0.35; fireLatch = false; Snd.click(); return false; }   // arme bloquée par le désordre
   if (reloading) {
     if (w.shell && a && a.mag > 0) { reloading = false; nextShot = now + 0.12; } // on interrompt le rechargement
     return false;
@@ -625,7 +678,7 @@ function connect() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   $('err').textContent = '';
   try { ws = new WebSocket(url); } catch (e) { $('err').textContent = 'Connexion impossible.'; return; }
-  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map, lobby: joinInfo.lobby ? 1 : 0 });
+  ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map, mode: joinInfo.mode, lobby: joinInfo.lobby ? 1 : 0 });
   ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (connected) { connected = false; leaveToMenu('Connexion au serveur perdue.'); }
@@ -651,6 +704,7 @@ function onMsg(m) {
   switch (m.type) {
     case 'welcome':
       myId = m.id; myTeam = null; connected = true; S.me = null; setMap(m.map); ammo = {}; cur = 'glock'; lastInv = { p: null, s: null };
+      tpSeq = 0; S.hf = undefined;
       $('play').disabled = false;
       buildVM(cur);
       S.lb = joinInfo.lobby ? 1 : 0; S.ph = 'wait';
@@ -672,6 +726,9 @@ function onMsg(m) {
     case 'rstart': onRoundStart(m); break;
     case 'rend': onRoundEnd(m); break;
     case 'leave': removeRemote(m.id); break;
+    case 'shift': warpWarn = m.t || 3; Snd.warn(); notice('⚠ DÉSORDRE DANS 3 SECONDES…', DZ); break;
+    case 'tp': onTeleport(m); break;
+    case 'chaos': onChaos(m); break;
   }
 }
 
@@ -681,13 +738,17 @@ function onSnap(m) {
   S.lb = m.lb ? 1 : 0; S.ho = m.ho || 0; S.lc = m.lc || 0;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
   if (m.mp && m.mp !== MAP.id) setMap(m.mp);
+  S.md = m.md ? 1 : 0; S.jm = m.jm || 0; S.iv = m.iv || 0;
+  if (m.hb) applyHidden(m.hb, !!prev);
   if (m.dp) syncDrops(m.dp);
   const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
   const lob = inLobby();
-  if (!lob && oldTeam && myTeam && oldTeam !== myTeam) {
+  // mi-temps (un changement de camp peut aussi venir d'un transfuge : on se fie au numéro de manche)
+  if (!lob && S.hf === 0 && m.hf === 1) {
     banner('MI-TEMPS', '#ffffff', 'Tu joues maintenant ' + teamName(myTeam) + ' · ton score te suit', 4000);
   }
+  S.hf = m.hf;
   S.pl = new Map();
   const seen = new Set();
   for (const e of m.pl) {
@@ -1106,6 +1167,13 @@ document.querySelectorAll('#teams button').forEach((b) => b.addEventListener('cl
 let chosenMap = MAPS[store.get('cs_map', 'dust')] ? store.get('cs_map', 'dust') : 'dust';
 function paintMaps() { document.querySelectorAll('#maps button').forEach((b) => b.classList.toggle('on', b.dataset.m === chosenMap)); }
 paintMaps(); setMap(chosenMap);
+chosenMode = store.get('cs_mode', '') === 'desordre' ? 'desordre' : '';
+function paintModes() {
+  document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.mo === chosenMode));
+  $('modeChip').textContent = 'MODE · ' + (chosenMode ? 'DÉSORDRE' : 'BOMBE');
+}
+paintModes();
+document.querySelectorAll('#modes button').forEach((b) => b.addEventListener('click', () => { chosenMode = b.dataset.mo; store.set('cs_mode', chosenMode); paintModes(); }));
 document.querySelectorAll('#maps button').forEach((b) => b.addEventListener('click', () => { chosenMap = b.dataset.m; store.set('cs_map', chosenMap); paintMaps(); if (!connected) setMap(chosenMap); }));
 
 function startGame() {
@@ -1114,7 +1182,7 @@ function startGame() {
   const room = $('room').value.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'main';
   store.set('cs_name', $('name').value.trim()); store.set('cs_room', $('room').value.trim()); store.set('cs_team', chosenTeam);
   store.set('cs_lobby', $('lobbyChk').checked ? '1' : '0');
-  joinInfo = { name, room, team: chosenTeam, map: chosenMap, lobby: $('lobbyChk').checked };
+  joinInfo = { name, room, team: chosenTeam, map: chosenMap, mode: chosenMode, lobby: $('lobbyChk').checked };
   $('play').disabled = true; $('err').textContent = 'Connexion…';
   connect();
 }
@@ -1206,6 +1274,10 @@ function bigBackground() {
     else g.fillStyle = '#1b1f23';
     g.fillRect(bx(b.x - b.w / 2), bz(b.z - b.d / 2), b.w * BIGS, b.d * BIGS);
   });
+  // murs disparus : contour en pointillés
+  g.setLineDash([6, 6]); g.strokeStyle = 'rgba(201,155,255,.85)'; g.lineWidth = 2;
+  hiddenSet.forEach((i) => { const b = MAP.boxes[i]; if (b) g.strokeRect(bx(b.x - b.w / 2), bz(b.z - b.d / 2), b.w * BIGS, b.d * BIGS); });
+  g.setLineDash([]);
   Object.keys(SITES).forEach((k) => {
     const st = SITES[k];
     g.fillStyle = 'rgba(216,67,47,.2)'; g.strokeStyle = 'rgba(232,80,58,.95)'; g.lineWidth = 3;
@@ -1218,7 +1290,7 @@ function bigBackground() {
   return c;
 }
 function drawBigMap() {
-  if (bigId !== MAP.id) { bigBg = bigBackground(); bigId = MAP.id; }
+  if (bigId !== MAP.id + '|' + hiddenSig) { bigBg = bigBackground(); bigId = MAP.id + '|' + hiddenSig; }
   const g = bctx;
   g.clearRect(0, 0, BIG, BIG); g.drawImage(bigBg, 0, 0);
   const col = myTeam === 'T' ? '#e0a040' : '#5aa0ff';
@@ -1258,14 +1330,15 @@ function updateHud() {
   const t = $('timer');
   t.classList.toggle('bomb', S.b.s === 'planted');
   t.textContent = S.ph === 'wait' ? '--:--' : fmt(left);
-  $('roundl').textContent = 'Manche ' + S.rd + (S.ph === 'freeze' ? ' · achat' : '');
+  $('roundl').textContent = 'Manche ' + S.rd + (S.ph === 'freeze' ? ' · achat' : '') + (S.md ? ' · désordre' : '');
   $('hpn').textContent = me.hp; $('hpn').classList.toggle('low', me.hp <= 30);
   $('arn').textContent = me.ar;
   $('money').textContent = '$' + me.mo;
   const w = WEAPONS[cur], a = ammo[cur];
-  $('wname').textContent = w.n + (reloading ? ' · rechargement…' : '');
+  $('wname').textContent = w.n + (jammed(cur) ? ' · BLOQUÉE ' + Math.ceil(S.jm.t) + ' s' : '') + (reloading ? ' · rechargement…' : '');
+  $('wname').style.color = jammed(cur) ? DZ : '';
   $('mag').textContent = w.mag && a ? a.mag : '-'; $('res').textContent = w.mag && a ? a.res : '-';
-  $('icons').textContent = (me.bm ? 'Bombe · ' : '') + (me.he ? 'Casque · ' : '') + (me.k ? 'Kit' : '');
+  $('icons').textContent = (S.iv > 0 ? 'Commandes inversées ' + Math.ceil(S.iv) + ' s · ' : '') + (me.bm ? 'Bombe · ' : '') + (me.he ? 'Casque · ' : '') + (me.k ? 'Kit' : '');
   if (ui.buy) { if (!me.bo || !me.al) closeBuy(true); else renderBuy(); }
 
   // invites
@@ -1343,7 +1416,7 @@ $('lbIn').addEventListener('keydown', (e) => {
 function renderLobby(m) {
   const lobby = $('lobby'); lobby.classList.remove('hide');
   const host = S.ho, isHost = host === myId, list = m.pl.slice();
-  const sig = JSON.stringify([list.map((e) => [e.i, e.n, e.t, e.rdy]), host, m.mp, Math.ceil(S.lc || 0)]);
+  const sig = JSON.stringify([list.map((e) => [e.i, e.n, e.t, e.rdy]), host, m.mp, m.md, Math.ceil(S.lc || 0)]);
   if (sig === lbSig) return; lbSig = sig;
   const mine = (list.find((e) => e.i === myId) || {}).t, meRdy = !!(list.find((e) => e.i === myId) || {}).rdy;
   $('lbRoom').textContent = 'SALLE « ' + (joinInfo.room || '') + ' »';
@@ -1354,6 +1427,15 @@ function renderLobby(m) {
     b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = MAPS[id].name.toUpperCase(); b.lastChild.textContent = isHost ? '' : (id === m.mp ? 'choisie par l\u2019hôte' : '');
     b.addEventListener('click', () => send({ type: 'lmap', map: id }));
     mp.appendChild(b);
+  });
+  // mode
+  const mdBox = $('lbModes'); mdBox.innerHTML = '';
+  [['', 'BOMBE', 'classique'], ['desordre', 'RIEN N’EST À SA PLACE', 'désordre']].forEach(([id, n, d]) => {
+    const on = (m.md ? 'desordre' : '') === id;
+    const b = document.createElement('button'); b.className = (on ? 'on' : '') + (id ? ' dz' : ''); b.disabled = !isHost;
+    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = n; b.lastChild.textContent = d;
+    b.addEventListener('click', () => send({ type: 'lmode', mode: id }));
+    mdBox.appendChild(b);
   });
   // équipes
   ['T', 'CT'].forEach((t) => {
@@ -1374,7 +1456,7 @@ function renderLobby(m) {
   $('lbCount').textContent = list.length + '/10';
   // bas
   const everyone = list.length > 0 && list.every((e) => e.rdy);
-  $('lbMode').textContent = 'BOMBE · ' + ((MAPS[m.mp] || {}).name || '').toUpperCase();
+  $('lbMode').textContent = (m.md ? 'DÉSORDRE' : 'BOMBE') + ' · ' + ((MAPS[m.mp] || {}).name || '').toUpperCase();
   $('lbWait').textContent = list.length < 2 ? 'SEUL DANS LE LOBBY · INVITE TES AMIS OU LANCE' : everyone ? 'TOUT LE MONDE EST PRÊT' : 'EN ATTENTE DES JOUEURS PRÊTS…';
   $('lbCountdown').textContent = S.lc > 0 ? 'LA PARTIE COMMENCE DANS ' + Math.ceil(S.lc) + '…' : '';
   const rb = $('lbReady'); rb.textContent = meRdy ? 'ANNULER' : 'PRÊT'; rb.classList.toggle('on', !meRdy);
@@ -1410,8 +1492,9 @@ function update(dt, now) {
 
   // --- mouvement (inertie : on ne s'arrête pas net)
   if (isAlive) {
-    const f = (down('fwd') ? 1 : 0) - (down('back') ? 1 : 0);
-    const r = (down('right') ? 1 : 0) - (down('left') ? 1 : 0);
+    let f = (down('fwd') ? 1 : 0) - (down('back') ? 1 : 0);
+    let r = (down('right') ? 1 : 0) - (down('left') ? 1 : 0);
+    if (S.iv > 0) { f = -f; r = -r; }   // désordre : commandes inversées
     const len = Math.hypot(f, r) || 1;
     const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
     const crouching = cfg.toggleCrouch ? crouchTog : down('crouch');
@@ -1539,7 +1622,7 @@ function update(dt, now) {
   sendAcc += dt;
   if (sendAcc >= 0.033) {
     sendAcc = 0;
-    if (isAlive) send({ type: 'st', x: +P.x.toFixed(2), y: +P.y.toFixed(2), z: +P.z.toFixed(2), yaw: +(P.yaw + P.recY).toFixed(3), pitch: +(P.pitch + P.recP).toFixed(3), c: P.crouch > 0.5 ? 1 : 0, w: cur, rl: reloading ? 1 : 0, am: ammoMsg() });
+    if (isAlive) send({ type: 'st', x: +P.x.toFixed(2), y: +P.y.toFixed(2), z: +P.z.toFixed(2), yaw: +(P.yaw + P.recY).toFixed(3), pitch: +(P.pitch + P.recP).toFixed(3), c: P.crouch > 0.5 ? 1 : 0, w: cur, rl: reloading ? 1 : 0, am: ammoMsg(), tp: tpSeq });
   }
 }
 
@@ -1568,6 +1651,13 @@ function frame(t) {
     poseVM(dt, now, false);
     fx.update(dt);
   }
+  // désordre : l'image se déchire juste avant et juste après l'événement
+  if (warpWarn > 0) warpWarn = Math.max(0, warpWarn - dt);
+  if (warpHit > 0) warpHit = Math.max(0, warpHit - dt);
+  const gl = cfg.shake > 0 && ((warpWarn > 0 && warpWarn < 0.9) || warpHit > 0.35);
+  if (gl !== glitchOn) { glitchOn = gl; canvas.classList.toggle('glitch', gl); }
+  const wo = Math.round((warpHit > 0 ? Math.min(1, warpHit / 0.6) : warpWarn > 0 ? (1 - warpWarn / 3) * 0.55 : 0) * 50) / 50;
+  if (wo !== warpOp) { warpOp = wo; $('warp').style.opacity = String(wo); }
   if (banTimer > 0) { banTimer -= dt; if (banTimer <= 0) $('banner').style.opacity = '0'; }
   if (noticeTimer > 0) { noticeTimer -= dt; if (noticeTimer <= 0) $('notice').textContent = ''; }
   ovAcc += dt;

@@ -59,6 +59,25 @@ Les réglages sont lus dans `settings.js` (`Settings.cfg`, `Settings.binds`) ; `
 - **MVP** de la manche : celui qui a posé ou désamorcé la bombe, sinon le meilleur tueur de l'équipe gagnante. Affiché à la fin de manche.
 - Le tableau des scores (Tab) montre les colonnes ★ (MVP) et ACE. Le serveur compte les kills par manche (`rk`) et envoie `rk`, `fb`, `ace` dans le message `kill`, et `mvp` dans `rend`.
 
+## Mode « Rien n'est à sa place »
+
+À choisir dans le menu (carte **MODE**) ou par l'hôte dans le lobby. Les règles de la bombe ne changent pas, mais de temps en temps un **désordre** frappe tout le monde. Tout est tiré au sort :
+
+- **combien** : à chaque manche, aucun désordre (environ 1 manche sur 3), un seul (4 sur 10), deux (2 sur 10) ou, rarement, trois ;
+- **quand** : n'importe quand entre 10 s après le début de la manche et 12 s avant la fin, avec au moins 20 s entre deux désordres ;
+- **alerte** : 3 fois sur 4, il est annoncé 3 s avant, sans dire lequel (bips, image qui se déchire). La 4e fois, il tombe par surprise ;
+- **lequel et avec quelle ampleur** (jamais deux fois de suite le même) :
+  - **Transfuges** : un T et un CT (parfois deux de chaque) changent de camp jusqu'à la fin de la manche. Les anciens coéquipiers deviennent des ennemis (et l'inverse). Si le porteur de la bombe passe CT, il la lâche.
+  - **Scores inversés** : les points des deux camps sont échangés, ainsi que les séries de défaites.
+  - **Les murs bougent** : 1 à 4 obstacles disparaissent ou réapparaissent (murs intérieurs, caisses, conteneurs). Un mur disparu ne bloque plus ni les joueurs ni les balles, et on tombe s'il était sous nos pieds. Un mur ne réapparaît jamais sur un joueur, la bombe ou une arme au sol. Sur la carte (M), les murs disparus sont en pointillés violets.
+  - **Armes bloquées** : les armes principales ou les pistolets ne tirent plus, pendant 6 à 14 s. Le serveur refuse aussi leurs touches.
+  - **Permutation** : des joueurs tirés au sort (au moins 2, une fois sur deux tous les vivants) prennent chacun la place d'un autre (position, regard, posture). Aucun d'eux ne reste à sa place.
+  - **Commandes inversées** : avancer recule et gauche va à droite, pendant 5 à 10 s.
+
+À chaque nouvelle manche, tout revient en place : les camps d'origine et tous les murs. L'effet visuel est coupé si **Secousses de l'écran** est à 0 %.
+
+Côté code : `phaseBoxes(map)` (`shared.js`) donne la liste des obstacles qui peuvent disparaître, la même pour le serveur et les clients. `gfx.js` construit chacun à part (`setHidden`), et `server.js` tire le programme de chaque manche (`planChaos`) puis les événements (`chaos`). Le snapshot envoie `md` (mode), `hb` (murs cachés), `jm` (arme bloquée), `iv` (commandes inversées) et `hf` (mi-temps passée). Après une permutation, le client renvoie `tp` dans `st` pour que le serveur ignore les positions envoyées avant la téléportation.
+
 ## Cartes
 
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.

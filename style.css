@@ -40,6 +40,10 @@ input[type=range]{width:100%;accent-color:var(--t)}
 #hurt{position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 140px 30px rgba(190,0,0,.8)}
 #hurtlow{position:absolute;inset:0;opacity:0;background:radial-gradient(circle,transparent 45%,rgba(90,0,0,.55));backdrop-filter:saturate(.45);transition:opacity .6s}
 #flash{position:absolute;inset:0;background:#fff;opacity:0}
+/* mode « rien n'est à sa place » : l'espace se déchire pendant une permutation */
+#warp{position:absolute;inset:0;opacity:0;mix-blend-mode:screen;background:repeating-linear-gradient(0deg,rgba(170,100,255,.18) 0 2px,transparent 2px 5px),radial-gradient(circle,transparent 30%,rgba(120,40,230,.6))}
+canvas#c.glitch{animation:glitch .16s steps(2) infinite}
+@keyframes glitch{0%{filter:hue-rotate(0) saturate(1.4);transform:none}25%{filter:hue-rotate(70deg) saturate(2) contrast(1.2);transform:translate(-6px,2px)}50%{filter:hue-rotate(-50deg) contrast(1.4);transform:translate(5px,-3px) skewX(1deg)}75%{filter:invert(.08) hue-rotate(30deg);transform:translate(-2px,4px)}100%{filter:none;transform:none}}
 .xh i{position:absolute;left:50%;top:50%;background:var(--cc,#7dff7d);opacity:var(--co,1);box-shadow:0 0 2px #000}
 .xh .u,.xh .d{width:var(--ct,2px);height:var(--cl,7px);margin-left:calc(var(--ct,2px) / -2)}
 .xh .u{margin-top:calc(var(--cl,7px) * -1)}
@@ -214,6 +218,9 @@ input[type=range]{width:100%;accent-color:var(--t)}
 .cards{display:grid;gap:8px}
 .cards.maps{grid-template-columns:repeat(4,1fr)}
 .cards.teams{grid-template-columns:repeat(3,1fr)}
+.cards.modes{grid-template-columns:repeat(2,1fr)}
+.cards.modes button.on{border-color:var(--txt);background:#1a2128}
+.cards.modes button[data-mo=desordre].on{border-color:#b77bff}.cards.modes button[data-mo=desordre].on b{color:#c99bff}
 .cards button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:13px 12px;background:#0b0e11;border:1px solid var(--line);border-top:3px solid var(--line);color:var(--txt);text-align:left}
 .cards button b{font-size:15px;letter-spacing:.5px}
 .cards button small{font-size:12px;color:var(--dim)}
@@ -246,10 +253,11 @@ input[type=range]{width:100%;accent-color:var(--t)}
 .lb-left{left:28px}.lb-right{right:28px}
 .lb-p{background:rgba(14,17,20,.82);border:1px solid rgba(255,255,255,.1);padding:12px}
 .lb-p h4{margin:0 0 8px;font-size:12px;letter-spacing:1px;color:var(--dim);display:flex;justify-content:space-between}
-#lbMaps button{display:block;width:100%;text-align:left;padding:9px 11px;margin-bottom:5px;background:#0b0e11;border:1px solid var(--line);color:var(--txt);font-size:14px}
-#lbMaps button small{color:var(--dim);margin-left:8px}
-#lbMaps button.on{border-color:var(--ok);background:rgba(140,207,77,.12)}
-#lbMaps button:disabled{cursor:default;opacity:.85}
+#lbMaps button,#lbModes button{display:block;width:100%;text-align:left;padding:9px 11px;margin-bottom:5px;background:#0b0e11;border:1px solid var(--line);color:var(--txt);font-size:14px}
+#lbMaps button small,#lbModes button small{color:var(--dim);margin-left:8px}
+#lbMaps button.on,#lbModes button.on{border-color:var(--ok);background:rgba(140,207,77,.12)}
+#lbModes button.on.dz{border-color:#b77bff;background:rgba(183,123,255,.14)}
+#lbMaps button:disabled,#lbModes button:disabled{cursor:default;opacity:.85}
 .lb-chat{flex:1;display:flex;flex-direction:column;min-height:0}
 #lchat{flex:1;overflow:auto;font-size:13px;text-align:left;margin-bottom:8px;user-select:text}
 #lchat div{margin-bottom:3px}

@@ -363,5 +363,24 @@
   // Compatibilité : anciennes variables = carte Dust
   const BOXES = MAPS.dust.boxes, SITES = MAPS.dust.sites, SPAWNS = MAPS.dust.spawns;
 
-  return { CFG, ZONES, WEAPONS, SHOP, MAPS, BOXES, SITES, SPAWNS };
+  // Mode « Rien n'est à sa place » : obstacles qui peuvent disparaître puis réapparaître pendant une manche.
+  // Choix déterministe (même liste sur le serveur et chez chaque joueur) : murs intérieurs, caisses, conteneurs,
+  // mais ni l'enceinte, ni les grands bâtiments, ni les escaliers, ni les terrasses.
+  function phaseBoxes(M) {
+    if (M._phase) return M._phase;
+    let s = 0; for (const ch of M.id) s = (s * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = () => { s = (s + 0x6D2B79F5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const list = [];
+    M.boxes.forEach((b, i) => {
+      if (b.h >= 10 || b.h < 1.1 || b.t === 'barrel') return;
+      if (b.w * b.d > 80 || Math.max(b.w, b.d) > 16) return;
+      if (b.t === 'w' && (Math.min(b.w, b.d) <= 0.7 || b.h === 2.5)) return;
+      if (Math.abs(b.z) > 31) return;                    // les zones de départ restent intactes
+      list.push(i);
+    });
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    return (M._phase = list.slice(0, 16));
+  }
+
+  return { CFG, ZONES, WEAPONS, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes };
 });

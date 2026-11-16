@@ -416,7 +416,7 @@ function atlasTex() {
 }
 
 /* ---------- monde ---------- */
-const cur = { map: null, group: null, rays: [], sky: null, mid: '' };
+const cur = { map: null, group: null, rays: [], allRays: [], pieces: {}, hidden: new Set(), flick: [], sky: null, mid: '' };
 const WHITE = new THREE.Color(1, 1, 1);
 const shade = (k, tint) => { const c = (tint || WHITE).clone(); c.multiplyScalar(k); return c; };
 
@@ -515,14 +515,21 @@ function buildWorld(M, force) {
     cur.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) { if (o.material.map) o.material.map.dispose(); if (o.material.alphaMap) o.material.alphaMap.dispose(); o.material.dispose(); } });
   }
   const G = new THREE.Group(); scene.add(G);
-  cur.group = G; cur.map = M; cur.rays = [];
-  const dust = style === 'dust', r = rng(M.id.length * 7 + (dust ? 91 : 92)), B = new Batch(), D = new Batch(), Far = new Batch();
+  if (cur.map !== M) cur.hidden = new Set();
+  cur.group = G; cur.map = M; cur.rays = []; cur.allRays = []; cur.pieces = {}; cur.flick = [];
+  const dust = style === 'dust', r = rng(M.id.length * 7 + (dust ? 91 : 92)), Far = new Batch();
+  const mainB = new Batch(), mainD = new Batch(), B = mainB, D = mainD;
   const wallK = dust ? 'plaster' : 'concrete', baseK = dust ? 'stone' : 'concrete', groundK = dust ? 'sand' : 'asphalt';
   const rayGroup = new THREE.Group(); G.add(rayGroup);
-  const addRay = (x, y, z, w, h, d, mat, pen) => {
+  const addRay0 = (x, y, z, w, h, d, mat, pen) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), RAYMAT);
-    m.position.set(x, y + h / 2, z); m.visible = false; m.userData = { mat, pen }; m.updateMatrixWorld(); rayGroup.add(m); cur.rays.push(m);
+    m.position.set(x, y + h / 2, z); m.visible = false; m.userData = { mat, pen }; m.updateMatrixWorld(); rayGroup.add(m); cur.allRays.push(m);
+    return m;
   };
+  const addRay = addRay0;
+  // obstacles qui peuvent disparaître (mode « rien n'est à sa place ») : géométrie et rayons à part
+  const phase = new Set(window.CS && CS.phaseBoxes ? CS.phaseBoxes(M) : []);
+  const piece = (i) => cur.pieces[i] || (cur.pieces[i] = { B: new Batch(), D: new Batch(), rays: [], group: null });
   // sol : maille 200 m + grand disque pour l'horizon
   const gm = surfMat(groundK).clone(); gm.vertexColors = false; gm.map = gm.map.clone(); gm.normalMap = gm.normalMap.clone(); gm.roughnessMap = gm.roughnessMap.clone();
   [gm.map, gm.normalMap, gm.roughnessMap].forEach((t) => { t.repeat.set(dust ? 300 : 260, dust ? 300 : 260); t.needsUpdate = true; });
@@ -539,6 +546,9 @@ function buildWorld(M, force) {
   }
   // obstacles
   M.boxes.forEach((b, i) => {
+    const pc = phase.has(i) ? piece(i) : null;
+    const B = pc ? pc.B : mainB, D = pc ? pc.D : mainD;
+    const addRay = pc ? (...a) => { pc.rays.push(addRay0(...a)); } : addRay0;
     const tint = new THREE.Color().setHSL(0, 0, 0.88 + r() * 0.14);
     const big = b.h >= 2.8 && b.t !== 'cont';
     if (b.t === 'w') { // muret
@@ -616,8 +626,9 @@ function buildWorld(M, force) {
     B.quad('stone', [s.x - R, 0.008, s.z + R], [2 * R, 0, 0], [0, 0, -2 * R], [0, 1, 0], 0, 0, 2 * R / 2.2, 2 * R / 2.2, shade(0.78), shade(0.78));
   });
   // détails muraux : parcourt les grands murs
-  M.boxes.forEach((b) => {
+  M.boxes.forEach((b, i) => {
     if (b.h < 5.5 || b.t) return;
+    const pc = phase.has(i) ? piece(i) : null, B = pc ? pc.B : mainB, D = pc ? pc.D : mainD;
     const long = b.w > b.d, L = Math.max(b.w, b.d), isEnc = b.h >= 10;
     if (L < 3.5) return;
     [1, -1].forEach((s) => {
@@ -733,6 +744,14 @@ function buildWorld(M, force) {
   add(Far.mesh('ribsS', metalPlain(), true, false));
   const dm = D.mesh('d', decalMat(), false); if (dm) { add(dm); dm.renderOrder = 2; }
   const cl = clothB.mesh('c', clothMat(), true); if (cl) add(cl);
+  Object.keys(cur.pieces).forEach((i) => {
+    const pc = cur.pieces[i], g = new THREE.Group();
+    ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(pc.B.mesh(k, surfMat(k), true), g));
+    add(pc.B.mesh('ribsS', metalPlain(), true), g);
+    const pd = pc.D.mesh('d', decalMat(), false); if (pd) { g.add(pd); pd.renderOrder = 2; }
+    pc.group = g; pc.B = pc.D = null; G.add(g);
+  });
+  applyHidden();
   // petits cailloux instanciés
   const nRocks = Math.round((dust ? 340 : 140) * Q.decor);
   if (nRocks) {
@@ -748,6 +767,34 @@ function buildWorld(M, force) {
     rocks.receiveShadow = true; rocks.userData.ownMat = true; G.add(rocks);
   }
   return cur.rays;
+}
+// obstacles cachés : invisibles, et les balles passent au travers
+function applyHidden() {
+  const off = new Set();
+  Object.keys(cur.pieces || {}).forEach((i) => {
+    const pc = cur.pieces[i], h = cur.hidden.has(+i);
+    if (pc.group && !cur.flick.some((f) => f.g === pc.group)) pc.group.visible = !h;
+    if (h) pc.rays.forEach((m) => off.add(m));
+  });
+  cur.rays = cur.allRays.filter((m) => !off.has(m));
+  return cur.rays;
+}
+// list = indices des obstacles cachés ; anim = clignotement avant le nouvel état
+function setHidden(list, anim) {
+  const next = new Set(list || []), now = performance.now() / 1000;
+  if (anim) Object.keys(cur.pieces || {}).forEach((i) => {
+    const pc = cur.pieces[i];
+    if (pc.group && next.has(+i) !== cur.hidden.has(+i)) { cur.flick = cur.flick.filter((f) => f.g !== pc.group); cur.flick.push({ g: pc.group, end: now + 0.55, vis: !next.has(+i) }); }
+  });
+  cur.hidden = next;
+  return applyHidden();
+}
+function updateFlicker(t) {
+  if (!cur.flick || !cur.flick.length) return;
+  cur.flick = cur.flick.filter((f) => {
+    if (t >= f.end) { f.g.visible = f.vis; return false; }
+    f.g.visible = Math.floor(t * 26) % 2 === 0; return true;
+  });
 }
 const RAYMAT = new THREE.MeshBasicMaterial();
 let _mp = null, _dm = null, _cm = null;
@@ -824,6 +871,7 @@ function pass(mat, target) { post.quad.material = mat; renderer.setRenderTarget(
 
 function render(t) {
   if (skyDome) skyDome.position.copy(cam.position);
+  updateFlicker(performance.now() / 1000);
   if (!Q.post || !post.ok) {
     renderer.autoClear = true; renderer.render(scene, cam);
     renderer.autoClear = false; renderer.clearDepth(); renderer.render(vmScene, vmCam); renderer.autoClear = true;
@@ -998,7 +1046,7 @@ const fx = (function () {
 })();
 
 return {
-  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
+  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, setHidden, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
   get scene() { return scene; }, get cam() { return cam; }, get renderer() { return renderer; }, get vmScene() { return vmScene; }, get rays() { return cur.rays; }
 };
 })();

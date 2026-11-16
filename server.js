@@ -6,7 +6,9 @@ const WebSocket = require('ws');
 // Docker : fichiers client dans ./public ; dépôt à plat (npm start en local) : à la racine
 const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
 const CS = require(path.join(PUB, 'shared.js'));
-const { CFG, ZONES, WEAPONS, MAPS } = CS;
+const { CFG, ZONES, WEAPONS, MAPS, phaseBoxes } = CS;
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const shuffled = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 const PORT = process.env.PORT || 3000;
 const MIME = {
@@ -37,9 +39,12 @@ const r2 = (v) => Math.round(v * 100) / 100;
 const send = (ws, o) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o)); };
 
 class Room {
-  constructor(name, mapId) {
+  constructor(name, mapId, mode) {
     this.name = name;
     this.map = MAPS[mapId] || MAPS[process.env.MAP] || MAPS.dust; // carte choisie par le créateur de la salle
+    this.mode = mode === 'desordre' ? 'desordre' : '';          // 'desordre' : rien n'est à sa place
+    this.hidden = new Set();                                    // obstacles disparus (indices dans map.boxes)
+    this.chaosQ = []; this.jam = null; this.inv = 0; this.lastChaos = '';
     this.players = new Map();
     this.nextId = 1;
     this.nextDrop = 1;
@@ -80,10 +85,13 @@ class Room {
     this.lobbyAt = 0;
   }
 
+  // obstacles présents (ceux qui ont disparu ne comptent plus)
+  solid() { return this.hidden.size ? this.map.boxes.filter((b, i) => !this.hidden.has(i)) : this.map.boxes; }
+
   /* ---------- armes au sol ---------- */
   groundY(x, z, y) {
     let g = 0;
-    for (const b of this.map.boxes) {
+    for (const b of this.solid()) {
       if (b.h <= y + 0.2 && b.h > g && Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) g = b.h;
     }
     return g;
@@ -98,7 +106,7 @@ class Room {
     if (!w || w.slot === 3) return;
     const [mag, res] = this.ammoOf(p, id);
     let x = p.x - Math.sin(p.yaw) * dist, z = p.z - Math.cos(p.yaw) * dist;
-    const inWall = this.map.boxes.some((b) => b.h > p.y + 0.2 && Math.abs(x - b.x) < b.w / 2 + 0.1 && Math.abs(z - b.z) < b.d / 2 + 0.1);
+    const inWall = this.solid().some((b) => b.h > p.y + 0.2 && Math.abs(x - b.x) < b.w / 2 + 0.1 && Math.abs(z - b.z) < b.d / 2 + 0.1);
     if (inWall) { x = p.x; z = p.z; }
     x = Math.max(-39.5, Math.min(39.5, x)); z = Math.max(-39.5, Math.min(39.5, z));
     this.drops.push({
@@ -173,6 +181,9 @@ class Room {
   startRound() {
     const now = Date.now();
     this.round++;
+    // désordre de la manche précédente : chacun retrouve son camp, les murs reviennent
+    this.all().forEach((p) => { if (p.home) { p.team = p.home; p.home = null; } });
+    this.hidden = new Set(); this.jam = null; this.inv = 0; this.chaosQ = [];
     let fullReset = this.round === 1;
     if (this.round - 1 === CFG.maxRounds / 2) { // mi-temps : on inverse les camps
       this.all().forEach((p) => { if (p.team) p.team = p.team === 'T' ? 'CT' : 'T'; });
@@ -206,6 +217,97 @@ class Room {
     this.phase = 'freeze';
     this.phaseEnd = now + CFG.freeze * 1000;
     this.bcast({ type: 'rstart', round: this.round });
+  }
+
+  /* ---------- mode « Rien n'est à sa place » : des désordres au hasard, de temps en temps ----------
+     Chaque manche tire son nombre d'événements (souvent 0 ou 1, parfois 2 ou 3) et leurs moments.
+     Le type d'événement et son ampleur sont aussi tirés au sort. */
+  planChaos(now) {
+    const r = Math.random(), n = r < 0.35 ? 0 : r < 0.75 ? 1 : r < 0.95 ? 2 : 3;
+    const t0 = 10000, t1 = CFG.live * 1000 - 12000, q = [];
+    for (let tries = 0; q.length < n && tries < 50; tries++) {
+      const t = t0 + Math.random() * (t1 - t0);
+      if (q.every((u) => Math.abs(u - t) > 20000)) q.push(t);
+    }
+    // 1 fois sur 4, pas d'alerte : le désordre tombe par surprise
+    this.chaosQ = q.sort((a, b) => a - b).map((t) => ({ at: now + t, warn: Math.random() < 0.75, warned: false }));
+  }
+  tickChaos(now) {
+    const e = this.chaosQ && this.chaosQ[0];
+    if (!e) return;
+    if (e.warn && !e.warned && now >= e.at - 3000) { e.warned = true; this.bcast({ type: 'shift', t: 3 }); }
+    if (now >= e.at) { this.chaosQ.shift(); this.chaos(now); }
+  }
+  chaos(now) {
+    const T = this.alive('T'), C = this.alive('CT');
+    const kinds = [];
+    if (T.length && C.length) kinds.push('teams');
+    if (this.score.T !== this.score.CT) kinds.push('score');
+    if (phaseBoxes(this.map).length) kinds.push('walls');
+    if (!this.jam || now > this.jam.until) kinds.push('jam');
+    if (T.length + C.length >= 2) kinds.push('swap');
+    if (now > this.inv) kinds.push('invert');
+    const pool = kinds.filter((k) => k !== this.lastChaos);
+    const k = pick(pool.length ? pool : kinds);
+    if (!k) return;
+    this.lastChaos = k;
+    const rand = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+    if (k === 'teams') this.chaosTeams(T, C);
+    else if (k === 'score') {
+      this.score = { T: this.score.CT, CT: this.score.T }; this.loss = { T: this.loss.CT, CT: this.loss.T };
+      this.bcast({ type: 'chaos', k, sc: this.score });
+    } else if (k === 'walls') this.chaosWalls(rand(1, 4));
+    else if (k === 'jam') {
+      const s = Math.random() < 0.5 ? 1 : 2, t = rand(6, 14);
+      this.jam = { s, until: now + t * 1000 };
+      this.bcast({ type: 'chaos', k, s, t });
+    } else if (k === 'swap') this.permute();
+    else if (k === 'invert') { const t = rand(5, 10); this.inv = now + t * 1000; this.bcast({ type: 'chaos', k, t }); }
+  }
+
+  // des T et des CT (1 paire, parfois 2) échangent leur camp jusqu'à la fin de la manche
+  chaosTeams(T, C) {
+    const pairs = Math.min(T.length, C.length, Math.random() < 0.7 ? 1 : 2);
+    const a = shuffled(T).slice(0, pairs), b = shuffled(C).slice(0, pairs), who = a.concat(b);
+    who.forEach((p) => { if (!p.home) p.home = p.team; p.team = p.team === 'T' ? 'CT' : 'T'; p.act = null; p.pg = 0; });
+    const bm = this.bomb;
+    const carrier = a.find((p) => bm.s === 'carried' && bm.c === p.id);
+    if (carrier) { bm.s = 'dropped'; bm.c = null; bm.x = carrier.x; bm.y = 0; bm.z = carrier.z; }
+    this.bcast({ type: 'chaos', k: 'teams', ids: who.map((p) => p.id), ns: who.map((p) => p.name) });
+  }
+
+  // n murs disparaissent ou réapparaissent (jamais sur un joueur, la bombe ou une arme au sol)
+  chaosWalls(n) {
+    const boxes = this.map.boxes, bm = this.bomb;
+    const under = (b) => {
+      const inB = (x, z, m) => Math.abs(x - b.x) < b.w / 2 + m && Math.abs(z - b.z) < b.d / 2 + m;
+      return this.all().some((p) => p.alive && inB(p.x, p.z, 0.6)) || ((bm.s === 'planted' || bm.s === 'dropped') && inB(bm.x, bm.z, 1)) || this.drops.some((d) => inB(d.x, d.z, 0.3));
+    };
+    let on = 0, off = 0;
+    for (const i of shuffled(phaseBoxes(this.map))) {
+      if (on + off >= n) break;
+      if (this.hidden.has(i)) { if (!under(boxes[i])) { this.hidden.delete(i); on++; } }
+      else { this.hidden.add(i); off++; }
+    }
+    this.bcast({ type: 'chaos', k: 'walls', hb: Array.from(this.hidden), on, off });
+  }
+
+  // permutation : des joueurs vivants tirés au sort (au moins 2, parfois tous) prennent la place d'un autre
+  // (position, regard, posture). Permutation en un seul cycle (Sattolo) : aucun d'eux ne reste à sa place.
+  permute() {
+    const alive = shuffled(this.all().filter((p) => p.alive));
+    if (alive.length < 2) return;
+    const list = alive.slice(0, Math.random() < 0.5 ? alive.length : 2 + Math.floor(Math.random() * (alive.length - 1)));
+    const spots = list.map((p) => ({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, c: p.c, n: p.name }));
+    const idx = list.map((_, i) => i);
+    for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * i); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+    list.forEach((p, i) => {
+      const d = spots[idx[i]];
+      p.x = d.x; p.y = d.y; p.z = d.z; p.yaw = d.yaw; p.c = d.c; p.act = null; p.pg = 0;
+      p.tp = (p.tp || 0) + 1;   // les positions envoyées avant la téléportation sont ignorées
+      send(p.ws, { type: 'tp', x: r2(d.x), y: r2(d.y), z: r2(d.z), yaw: r2(d.yaw), c: d.c, s: p.tp, n: d.n });
+    });
+    this.bcast({ type: 'chaos', k: 'swap', n: list.length, all: list.length === alive.length ? 1 : 0 });
   }
 
   // MVP de la manche : celui qui a posé / désamorcé, sinon le meilleur tueur du camp vainqueur
@@ -284,6 +386,7 @@ class Room {
     const wid = sh.inv.cur, w = WEAPONS[wid];
     if (!w) return;
     const now = Date.now();
+    if (this.jam && now < this.jam.until && w.slot === this.jam.s) return;   // arme bloquée
     // une balle par cible : un tir de chevrotine peut toucher plusieurs joueurs
     const last = sh.lastHit.get(t.id) || 0;
     if (now - last < w.rof * 1000 * 0.6) return;
@@ -365,7 +468,7 @@ class Room {
   // la bombe est posée 0,55 m devant le joueur (à ses pieds si un mur gêne)
   bombSpot(p) {
     const x = p.x - Math.sin(p.yaw) * 0.55, z = p.z - Math.cos(p.yaw) * 0.55;
-    const inWall = this.map.boxes.some((b) => b.h > 0.4 && Math.abs(x - b.x) < b.w / 2 + 0.15 && Math.abs(z - b.z) < b.d / 2 + 0.15);
+    const inWall = this.solid().some((b) => b.h > 0.4 && Math.abs(x - b.x) < b.w / 2 + 0.15 && Math.abs(z - b.z) < b.d / 2 + 0.15);
     return inWall ? { x: p.x, z: p.z } : { x, z };
   }
 
@@ -385,7 +488,10 @@ class Room {
       }
     } else if (this.phase === 'freeze') {
       this.autoPickup();
-      if (now >= this.phaseEnd) { this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000; }
+      if (now >= this.phaseEnd) {
+        this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000;
+        if (this.mode) this.planChaos(now); else this.chaosQ = [];
+      }
     } else if (this.phase === 'live') {
       this.tickLive(now);
     } else if (this.phase === 'end') {
@@ -399,6 +505,7 @@ class Room {
 
   tickLive(now) {
     const b = this.bomb;
+    if (this.mode) this.tickChaos(now);   // désordre éventuel de la manche
     this.autoPickup();
     // ramassage de la bombe
     if (b.s === 'dropped') {
@@ -467,6 +574,9 @@ class Room {
     const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
       type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
+      hf: this.round > CFG.maxRounds / 2 ? 1 : 0, md: this.mode ? 1 : 0, hb: Array.from(this.hidden),
+      jm: this.jam && now < this.jam.until ? { s: this.jam.s, t: r2((this.jam.until - now) / 1000) } : 0,
+      iv: now < this.inv ? r2((this.inv - now) / 1000) : 0,
       b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl
     };
     if (this.lobby) { common.lb = 1; common.ho = this.host; common.lc = this.lobbyAt ? r2(Math.max(0, (this.lobbyAt - now) / 1000)) : 0; }
@@ -493,10 +603,13 @@ class Room {
       case 'st': {
         if (now - p.lastSt < 25) return;
         p.lastSt = now;
-        p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; p.rl = m.rl ? 1 : 0;
+        // message parti avant une permutation : ancienne position, on l'ignore
+        const stale = (p.tp || 0) !== (num(m.tp) | 0);
+        if (!stale) { p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; }
+        p.rl = m.rl ? 1 : 0;
         if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife')) p.inv.cur = m.w;
         if (m.w === p.inv.cur) this.noteAmmo(p, m.am); // sinon : message parti avant un échange d'arme
-        if (!p.alive || this.phase === 'freeze') return;
+        if (!p.alive || this.phase === 'freeze' || stale) return;
         p.x = Math.max(-40, Math.min(40, num(m.x, p.x)));
         p.y = Math.max(0, Math.min(8, num(m.y, p.y)));
         p.z = Math.max(-40, Math.min(40, num(m.z, p.z)));
@@ -548,8 +661,16 @@ class Room {
       }
       case 'lmap': {   // l'hôte choisit la carte
         if (this.lobby && this.phase === 'wait' && p.id === this.host && typeof m.map === 'string' && MAPS[m.map] && this.map !== MAPS[m.map]) {
-          this.map = MAPS[m.map]; this.all().forEach((q) => { q.ready = false; });
+          this.map = MAPS[m.map]; this.hidden = new Set(); this.all().forEach((q) => { q.ready = false; });
           this.msg('Carte : ' + this.map.name, 'info');
+        }
+        break;
+      }
+      case 'lmode': {  // l'hôte choisit le mode : bombe classique ou « rien n'est à sa place »
+        const md = m.mode === 'desordre' ? 'desordre' : '';
+        if (this.lobby && this.phase === 'wait' && p.id === this.host && md !== this.mode) {
+          this.mode = md; this.all().forEach((q) => { q.ready = false; });
+          this.msg('Mode : ' + (md ? 'Rien n\'est à sa place' : 'Bombe'), 'info');
         }
         break;
       }
@@ -633,7 +754,7 @@ wss.on('connection', (ws) => {
       if (m.type !== 'join') return;
       const rn = String(m.room || 'main').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16) || 'main';
       let r = rooms.get(rn);
-      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : ''); r.lobby = m.lobby === 1 || m.lobby === true; rooms.set(rn, r); }
+      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : '', m.mode); r.lobby = m.lobby === 1 || m.lobby === true; rooms.set(rn, r); }
       if (r.players.size >= CFG.maxPlayers) { send(ws, { type: 'err', text: 'Salle pleine (' + CFG.maxPlayers + ' joueurs max)' }); return; }
       const name = String(m.name || 'Joueur').replace(/[\u0000-\u001f<>]/g, '').slice(0, 16).trim() || 'Joueur';
       room = r;

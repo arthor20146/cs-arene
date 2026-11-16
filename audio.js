@@ -174,6 +174,22 @@ window.Snd = (function () {
       burst({ ...o, freq: 900, sweep: 50, dur: 2.6, vol: 1 * v, q: 0.5, type: 'lowpass', wet: 1 });
       tone({ ...o, freq: 80, to: 22, dur: 2.2, vol: 1 * v });
     },
+    // « rien n'est à sa place » : compte à rebours avant permutation, puis distorsion de l'espace
+    warn() {
+      [0, 1, 2].forEach((i) => {
+        const f = 440 + i * 220;
+        tone({ wave: 'square', freq: f, dur: 0.13, vol: 0.08, delay: i, wet: 0.3 });
+        tone({ wave: 'sine', freq: f * 2.01, to: f * 1.5, dur: 0.35, vol: 0.05, delay: i + 0.02, wet: 0.5 });
+      });
+      tone({ wave: 'sawtooth', freq: 55, to: 110, dur: 3, vol: 0.05 });
+    },
+    warp() {
+      tone({ wave: 'sawtooth', freq: 2200, to: 60, dur: 0.6, vol: 0.1, wet: 0.7 });
+      tone({ wave: 'sine', freq: 150, to: 34, dur: 0.7, vol: 0.55 });
+      burst({ freq: 5200, sweep: 260, dur: 0.55, vol: 0.32, q: 1.4, wet: 0.9 });
+      burst({ freq: 700, dur: 0.09, vol: 0.4, q: 0.6, type: 'lowpass', delay: 0.02 });
+      [0.12, 0.2, 0.31].forEach((d) => tone({ wave: 'triangle', freq: 900 + Math.random() * 1600, dur: 0.05, vol: 0.05, delay: d }));
+    },
     buy() { burst({ freq: 2600, dur: 0.03, vol: 0.14, q: 5 }); burst({ freq: 1500, dur: 0.05, vol: 0.18, q: 4, delay: 0.07 }); },
     roundStart() { tone({ wave: 'triangle', freq: 520, dur: 0.15, vol: 0.18 }); tone({ wave: 'triangle', freq: 780, dur: 0.25, vol: 0.18, delay: 0.15 }); },
     // annonces de série : n = 2 double, 3 triple, 4 quadruple
