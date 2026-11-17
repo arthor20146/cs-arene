@@ -27,7 +27,8 @@ Tout est généré au chargement, sans fichier image ni son :
 - décor : fenêtres, portes, câbles, conteneurs, grues, ville à l'horizon, flaques sur les Docks ;
 - soldats articulés (marche, accroupi, rechargement, chute) et 21 modèles d'armes ;
 - particules, douilles, impacts selon la matière, sang, traçantes, flamme de bouche ;
-- son : écho, retard selon la distance, murs qui étouffent, balles qui sifflent, acouphène après l'explosion.
+- son : écho, retard selon la distance, murs qui étouffent, balles qui sifflent, acouphène après l'explosion ;
+- grenades : nuage de fumée en volume, flammes et sol brûlé, explosion, éclair aveuglant avec image rémanente.
 
 **Qualité graphique** (menu et pause) : `Basse` (sans ombres, pour les petits PC), `Moyenne`, `Haute` (occlusion ambiante, halo lumineux, anticrénelage). Les textures plus fines de `Haute` s'appliquent au prochain chargement de la page.
 
@@ -105,6 +106,25 @@ Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas
 - Rechargement plus long chargeur vide, cartouche par cartouche aux fusils à pompe (tirer interrompt), réarmement manuel de l'AWP, du SSG 08 et de la Nova.
 - Inertie, ralentissement quand on est touché ou à l'atterrissage, sauts répétés plus courts, souffle à la lunette (Maj pour le retenir).
 
+## Grenades
+
+Quatre grenades, achetées dans la boutique (section **Grenades**), **4 au maximum** en tout :
+
+| Touche | Grenade | Prix | Max | Effet |
+|---|---|---|---|---|
+| 4 | Flash | $200 | 2 | Aveugle ceux qui la voient : écran blanc puis image figée qui s'estompe, et sifflement. Plus on la regarde en face et de près, plus ça dure (jusqu'à 42 m, arrêtée par les murs). Le lanceur peut s'aveugler lui-même. |
+| 5 | Fumigène | $300 | 1 | Nuage opaque de 3,8 m de rayon pendant 18 s. Dedans, l'écran devient gris. Il éteint les feux proches. |
+| 6 | Frag | $300 | 1 | Explosion : jusqu'à 100 dégâts au centre, 10 m de rayon, arrêtée par les murs, réduite par le gilet. Pas de dégâts aux coéquipiers, mais on peut se blesser soi-même. |
+| 7 | Molotov | $400 | 1 | Éclate au premier contact avec le sol : flammes de 3,4 m de rayon pendant 7 s, 8 dégâts toutes les 0,5 s. |
+
+- **G** : grenade suivante. La molette passe aussi par les grenades.
+- **Clic gauche** : lancer loin. **Clic droit** : lancer court (en cloche). Le mouvement du joueur s'ajoute au lancer.
+- On ne lance qu'une fois la manche commencée. Après le lancer, on reprend l'arme d'avant (ou la grenade suivante du même type).
+- Les grenades se gardent d'une manche à l'autre si on survit ; un mort les perd.
+- Sur le radar et la carte (M) : fumées en gris, feux en orange.
+
+Côté code : le serveur simule tout (`throwGren`, `stepGren` pour la trajectoire et les rebonds, `detonate`, `popFlash`, `popHE`, zones de fumée et de feu dans `tickGren`). Il envoie `gr` (grenades en vol) et `zn` (zones) dans le snapshot, `g` (grenades possédées) dans `me`, et les messages `throw`, `gev` (explosion) et `blind` (aveuglement). Le client (`game.js`, section « Grenades ») lisse les trajectoires et affiche les effets. Réglages dans `CFG` et `GREN` (`shared.js`).
+
 ## Armes
 
 - **Terroristes** : Glock-18 (départ), Tec-9, Galil AR, AK-47, SG 553, MAC-10
@@ -125,11 +145,12 @@ Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas
 | Touche | Action |
 |---|---|
 | Z Q S D (ou W A S D) | Se déplacer |
-| Souris / clic gauche | Viser / tirer |
-| Clic droit (maintenu) | Viser par les organes de visée · armes à lunette : lunette |
+| Souris / clic gauche | Viser / tirer · grenade : lancer loin |
+| Clic droit (maintenu) | Viser par les organes de visée · armes à lunette : lunette · grenade : lancer court |
 | Espace / C / Maj | Sauter / s'accroupir / marcher |
 | R, 1 2 3, molette | Recharger, changer d'arme |
 | Q | Jeter son arme au sol (touche A sur AZERTY) |
+| 4 5 6 7 · G | Grenades (flash, fumigène, frag, Molotov) · grenade suivante |
 | B | Boutique (1 à 9 pour acheter) |
 | E | Prendre une arme au sol · maintenu : poser / désamorcer la bombe |
 | M | Afficher ou fermer la carte complète |
@@ -162,4 +183,4 @@ Dockerfile     déploiement Fly.io / Docker (range les fichiers client dans /app
 
 ## Pistes d'amélioration
 
-Grenades (fumigène, flash, explosive), bots, plus de cartes, déplacement validé côté serveur.
+Bots, plus de cartes, déplacement validé côté serveur.

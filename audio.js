@@ -190,6 +190,30 @@ window.Snd = (function () {
       burst({ freq: 700, dur: 0.09, vol: 0.4, q: 0.6, type: 'lowpass', delay: 0.02 });
       [0.12, 0.2, 0.31].forEach((d) => tone({ wave: 'triangle', freq: 900 + Math.random() * 1600, dur: 0.05, vol: 0.05, delay: d }));
     },
+    // grenades : goupille, lancer, rebonds, détonations, feu
+    pin() { burst({ freq: 3800, dur: 0.02, vol: 0.18, q: 6 }); tone({ wave: 'triangle', freq: 2900, to: 2500, dur: 0.12, vol: 0.05, delay: 0.03 }); burst({ freq: 1700, dur: 0.03, vol: 0.12, q: 4, delay: 0.16 }); },
+    throwN(v, pan, x) { x = x || {}; burst({ freq: 900, sweep: 2600, dur: 0.22, vol: 0.14 * (v == null ? 1 : v), q: 0.8, pan, lp: x.lp, delay: x.delay }); },
+    bounce(v, pan, x) { x = x || {}; const f = 1400 + Math.random() * 900; tone({ wave: 'triangle', freq: f, to: f * 0.8, dur: 0.07, vol: 0.12 * v, pan, lp: x.lp, delay: x.delay }); burst({ freq: 700, dur: 0.04, vol: 0.18 * v, q: 1.5, pan, lp: x.lp, delay: x.delay }); },
+    flashbang(v, pan, x) {
+      v = v == null ? 1 : v; x = x || {}; const o = { pan, lp: x.lp, delay: x.delay };
+      burst({ ...o, freq: 3200, dur: 0.06, vol: 1 * v, type: 'highpass', q: 0.4 });
+      burst({ ...o, freq: 1200, sweep: 200, dur: 0.6, vol: 0.8 * v, q: 0.5, wet: 1 });
+      tone({ ...o, freq: 120, to: 40, dur: 0.35, vol: 0.7 * v });
+    },
+    nadeHE(v, x) {
+      v = v == null ? 1 : v; x = x || {}; const o = { lp: x.lp, delay: x.delay };
+      burst({ ...o, freq: 2600, dur: 0.04, vol: 0.9 * v, type: 'highpass' });
+      burst({ ...o, freq: 700, sweep: 60, dur: 1.4, vol: 0.95 * v, q: 0.5, type: 'lowpass', wet: 1 });
+      tone({ ...o, freq: 95, to: 28, dur: 1.1, vol: 0.9 * v });
+      [0.05, 0.11, 0.2].forEach((d) => burst({ ...o, freq: 2000 + Math.random() * 2500, dur: 0.03, vol: 0.12 * v, q: 3, delay: (x.delay || 0) + d }));
+    },
+    smokePop(v, pan, x) { x = x || {}; v = v == null ? 1 : v; burst({ freq: 400, dur: 0.08, vol: 0.4 * v, q: 0.8, pan, lp: x.lp, delay: x.delay }); burst({ freq: 5000, sweep: 2200, dur: 2.6, vol: 0.16 * v, q: 0.5, type: 'highpass', pan, lp: x.lp, delay: (x.delay || 0) + 0.05, atk: 0.15 }); },
+    molo(v, pan, x) {
+      x = x || {}; v = v == null ? 1 : v; const o = { pan, lp: x.lp, delay: x.delay };
+      burst({ ...o, freq: 4200, dur: 0.05, vol: 0.4 * v, q: 3 }); burst({ ...o, freq: 2900, dur: 0.06, vol: 0.3 * v, q: 4, delay: (x.delay || 0) + 0.04 });
+      burst({ ...o, freq: 300, sweep: 1400, dur: 0.6, vol: 0.55 * v, q: 0.6, wet: 0.6, delay: (x.delay || 0) + 0.03, atk: 0.06 });
+    },
+    fire(v, pan, x) { x = x || {}; for (let i = 0; i < 4; i++) burst({ freq: 900 + Math.random() * 2400, dur: 0.02 + Math.random() * 0.03, vol: (0.05 + Math.random() * 0.08) * v, q: 2, pan, lp: x.lp, delay: (x.delay || 0) + Math.random() * 0.9 }); burst({ freq: 260, dur: 1.2, vol: 0.07 * v, q: 0.5, type: 'lowpass', pan, lp: x.lp, delay: x.delay, atk: 0.3 }); },
     buy() { burst({ freq: 2600, dur: 0.03, vol: 0.14, q: 5 }); burst({ freq: 1500, dur: 0.05, vol: 0.18, q: 4, delay: 0.07 }); },
     roundStart() { tone({ wave: 'triangle', freq: 520, dur: 0.15, vol: 0.18 }); tone({ wave: 'triangle', freq: 780, dur: 0.25, vol: 0.18, delay: 0.15 }); },
     // annonces de série : n = 2 double, 3 triple, 4 quadruple

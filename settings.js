@@ -19,6 +19,11 @@ const ACTIONS = [
   { id: 'slot2',  n: 'Arme secondaire',        g: 'Armes', d: ['Digit2', 'Numpad2'] },
   { id: 'slot3',  n: 'Couteau',                g: 'Armes', d: ['Digit3', 'Numpad3'] },
   { id: 'drop',   n: 'Jeter son arme',         g: 'Armes', d: ['KeyQ', ''] },
+  { id: 'nade1',  n: 'Grenade flash',          g: 'Grenades', d: ['Digit4', 'Numpad4'] },
+  { id: 'nade2',  n: 'Fumigène',               g: 'Grenades', d: ['Digit5', 'Numpad5'] },
+  { id: 'nade3',  n: 'Grenade à fragmentation', g: 'Grenades', d: ['Digit6', 'Numpad6'] },
+  { id: 'nade4',  n: 'Cocktail Molotov',       g: 'Grenades', d: ['Digit7', 'Numpad7'] },
+  { id: 'nadeNext', n: 'Grenade suivante',     g: 'Grenades', d: ['KeyG', ''] },
   { id: 'use',    n: 'Utiliser (ramasser, poser, désamorcer)', g: 'Actions', d: ['KeyE', ''] },
   { id: 'buy',    n: 'Boutique',               g: 'Actions', d: ['KeyB', ''] },
   { id: 'map',    n: 'Carte',                  g: 'Actions', d: ['KeyM', ''] },
@@ -160,7 +165,7 @@ function actionsOf(code) { return rev[code] || NONE; }
 const NONE = [];
 // touches à réserver au navigateur en plein écran (Keyboard Lock)
 function lockCodes() {
-  const s = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyT', 'KeyN', 'KeyB', 'KeyC', 'Tab']);
+  const s = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyT', 'KeyN', 'KeyB', 'KeyC', 'KeyG', 'Tab']);
   Object.keys(rev).forEach((c) => { if (/^(Key|Digit|Arrow|Tab$|Space$)/.test(c)) s.add(c); });
   return Array.from(s);
 }
@@ -190,6 +195,8 @@ function renderHelp(box) {
   row(keysOf('jump') + ' · ' + keysOf('crouch') + ' · ' + keysOf('walk'), 'Sauter · s\'accroupir · marcher');
   row(key('reload') + ' · ' + [key('slot1'), key('slot2'), key('slot3')].join(' ') + ' · Molette', 'Recharger · changer d\'arme');
   row(key('drop'), 'Jeter son arme au sol');
+  row([key('nade1'), key('nade2'), key('nade3'), key('nade4')].join(' ') + ' · ' + key('nadeNext'), 'Grenades (flash, fumigène, frag, Molotov) · grenade suivante');
+  row('Clic gauche / droit', 'Avec une grenade : lancer loin / lancer court');
   row(key('buy'), 'Boutique (début de manche)');
   row(key('use'), 'Prendre une arme au sol · maintenu : poser / désamorcer la bombe');
   row(key('map'), 'Afficher ou fermer la carte');
@@ -330,7 +337,7 @@ function paneKeys(pane) {
     pane.append(h('div', { class: 'srow' }, h('div', { class: 'lbl' }, h('div', { class: 'nm' }, a.n)), ctl));
   });
   pane.append(h('div', { class: 'grp' }, 'Souris (fixe)'));
-  [['Tirer', 'Clic gauche'], ['Viser · lunette', 'Clic droit'], ['Changer d\'arme', 'Molette']].forEach(([n, k]) => {
+  [['Tirer · lancer loin une grenade', 'Clic gauche'], ['Viser · lunette · lancer court', 'Clic droit'], ['Changer d\'arme', 'Molette']].forEach(([n, k]) => {
     pane.append(h('div', { class: 'srow' }, h('div', { class: 'lbl' }, h('div', { class: 'nm' }, n)), h('div', { class: 'ctl' }, h('span', { class: 'fixed' }, k))));
   });
   paintKeys();

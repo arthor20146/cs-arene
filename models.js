@@ -188,8 +188,46 @@ const DEF = {
     return { muzzle: new V(0, 0.012, -0.55), eject: new V(0.028, 0.03, 0.14), sight: new V(0, 0.095, 0.12), handR: new V(0, -0.075, 0.02), handL: new V(0, -0.075, -0.12), class: 'rifle', optic: 1, len: 0.79 };
   },
   ssg08(t) { return sniper(t, { c: C.fde, L: 0.84 }); },
-  awp(t) { return sniper(t, { c: C.awp, L: 0.92, big: 1 }); }
+  awp(t) { return sniper(t, { c: C.awp, L: 0.92, big: 1 }); },
+  // grenades : tenues debout dans la main (axe y)
+  flash(t) { return grenade(t, 'flash'); },
+  smoke(t) { return grenade(t, 'smoke'); },
+  he(t) { return grenade(t, 'he'); },
+  molo(t) { return grenade(t, 'molo'); }
 };
+function ringY(m, r, tube, x, y, z, col) { const g = new THREE.TorusGeometry(r, tube, 6, 14); m.b.geo('metal', g, mtx(x, y, z, Math.PI / 2, 0, 0), col); g.dispose(); }
+function grenade(t, k) {
+  const m = t.main, S = k === 'molo' ? 1.05 : 1.2;   // un peu plus grosse que nature : lisible à l'écran
+  const cy = (r1, r2, L, y, col, key) => m.cyl(key || 'metal', r1 * S, (r2 || r1) * S, L * S, 0, y * S, 0, col, 'y', 16);
+  if (k === 'flash' || k === 'smoke') {
+    const body = k === 'flash' ? lin(0xb4b8be) : lin(0x7d867c);
+    cy(0.026, 0, 0.1, 0.05, body);
+    if (k === 'smoke') cy(0.0275, 0, 0.018, 0.05, lin(0xdcdcd6), 'poly');
+    cy(0.0278, 0, 0.022, 0.111, C.black); cy(0.0278, 0, 0.012, -0.004, C.black);
+    m.box('metal', 0.004 * S, 0.09 * S, 0.02 * S, 0.03 * S, 0.06 * S, 0, C.steel);
+    ringY(m, 0.011 * S, 0.0022 * S, 0, 0.132 * S, 0.026 * S, C.steel);
+  } else if (k === 'he') {
+    const od = lin(0x424e33);
+    m.sph('poly', 0.04 * S, 0.048 * S, 0.04 * S, 0, 0.048 * S, 0, od, 16);
+    cy(0.0415, 0, 0.006, 0.06, lin(0x29321f), 'poly'); cy(0.0415, 0, 0.006, 0.026, lin(0x29321f), 'poly');
+    cy(0.0125, 0, 0.03, 0.1, C.black);
+    m.box('metal', 0.004 * S, 0.075 * S, 0.016 * S, 0.037 * S, 0.062 * S, 0, C.steel);
+    ringY(m, 0.009 * S, 0.002 * S, 0, 0.112 * S, 0.02 * S, C.steel);
+  } else {   // cocktail Molotov : bouteille, essence, chiffon
+    const glass = lin(0x3f5c3a);
+    cy(0.031, 0, 0.13, 0.065, glass, 'poly');
+    cy(0.0285, 0, 0.08, 0.045, lin(0xc77a16), 'poly');
+    cy(0.012, 0.01, 0.055, 0.157, glass, 'poly');
+    cy(0.0085, 0, 0.075, 0.2, lin(0xcfc3a0), 'poly');
+  }
+  return { muzzle: new V(0, 0.12, 0), eject: new V(), sight: new V(0, 0.05, 0.05), handR: new V(0, 0.02, 0.03), handL: new V(-0.12, -0.2, 0.05), class: 'grenade', len: 0.12, nade: k };
+}
+// flamme du chiffon de la Molotov
+const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.0, 0.6, 0.08), toneMapped: false, transparent: true, opacity: 0.9 });
+const flameGeo = new THREE.SphereGeometry(0.014, 10, 8);
+function addFlame(g, id) { if (id !== 'molo') return null; const f = new THREE.Mesh(flameGeo, flameMat); f.position.set(0, 0.258, 0); f.scale.set(1, 1.6, 1); g.add(f); return f; }
+// grenade seule (au sol, en vol) : centrée sur l'origine
+function nade(id) { const g = gunTP(id); g.children.forEach((c) => { c.position.y -= 0.075; }); return g; }
 function shotgun(t, o) {
   const m = t.main;
   m.box('metal', 0.04, 0.06, 0.22, 0, 0.01, -0.02, o.c); m.cyl('metal', 0.0115, 0.0115, 0.52, 0, 0.022, -0.38, o.c, 'z', 12); m.cyl('metal', 0.015, 0.015, 0.46, 0, -0.016, -0.34, C.gun, 'z', 12);
@@ -238,7 +276,8 @@ function gunVM(id) {
   const { t, info } = buildKit(id), g = new THREE.Group();
   const main = meshes(t.main), mag = meshes(t.mag), slide = meshes(t.slide), pump = meshes(t.pump);
   g.add(main, mag, slide, pump);
-  return { group: g, mag, slide, pump, info };
+  const flame = addFlame(g, id);
+  return { group: g, mag, slide, pump, info, flame };
 }
 // arme en vue externe : une seule géométrie, partagée
 const tpCache = {};
@@ -254,6 +293,7 @@ function gunTP(id) {
   }
   const c = tpCache[id], g = new THREE.Group();
   c.parts.forEach((m) => { const n = new THREE.Mesh(m.geometry, m.material); n.castShadow = true; g.add(n); });
+  addFlame(g, id);
   g.userData.info = c.info;
   return g;
 }
@@ -369,6 +409,7 @@ class Rig {
     const ri = this.cls === 'rifle' || this.cls === 'sniper' || this.cls === 'shotgun' || this.info.len > 0.4;
     this.long = ri;
     if (this.cls === 'knife') g.position.set(0.24, 0.16, -0.26);
+    else if (this.cls === 'grenade') g.position.set(0.2, 0.3, -0.3);
     else if (ri) g.position.set(0.1, 0.42, -0.18); else g.position.set(0.05, 0.42, -0.46);
   }
   muzzle(v) { return this.gun.localToWorld(v.copy(this.info.muzzle)); }
@@ -448,7 +489,7 @@ class Rig {
       hR.lerp(_f.set(dX + 0.06 + wob, ty + tapR, tz), A);
       hL.lerp(_f.set(dX - 0.1, ty + tapL, tz + 0.05), A);
     }
-    if (this.cls === 'knife' && A < 0.02 && rl < 0.01) {
+    if ((this.cls === 'knife' || this.cls === 'grenade') && A < 0.02 && rl < 0.01) {
       solve(this.uR, this.fR, SH_R, hR, POLE_R);
       this.uL.rotation.set(sw2 * 0.35 * mv + 0.2, 0, 0.12); this.fL.rotation.set(0.5, 0, 0);
     } else {
@@ -513,5 +554,5 @@ function bomb() {
   return g;
 }
 
-return { gunVM, gunTP, Rig, vmArm, bomb, mats };
+return { gunVM, gunTP, nade, Rig, vmArm, bomb, mats };
 })();
