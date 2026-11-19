@@ -40,6 +40,8 @@
       "game.js",
       "settings.js",
       "account.js",
+      "skins.js",
+      "pass.js",
       "shared.js",
       "audio.js",
       "gfx.js",

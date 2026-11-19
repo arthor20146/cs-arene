@@ -277,22 +277,24 @@ function buildKit(id) {
   return { t, info };
 }
 const KEYS = ['metal', 'poly', 'wood'];
-function meshes(kit) {
+// skin du pass de combat : un seul matériau peint sur toute l'arme
+const skinMat = (sk) => (sk && window.Skins && Skins.material(sk)) || null;
+function meshes(kit, sm) {
   const g = new THREE.Group();
-  KEYS.forEach((k) => { const m = kit.b.mesh(k, mats()[k], false, false); if (m) g.add(m); });
+  KEYS.forEach((k) => { const m = kit.b.mesh(k, sm || mats()[k], false, false); if (m) g.add(m); });
   return g;
 }
 // arme en vue subjective : pièces mobiles séparées
-function gunVM(id) {
-  const { t, info } = buildKit(id), g = new THREE.Group();
-  const main = meshes(t.main), mag = meshes(t.mag), slide = meshes(t.slide), pump = meshes(t.pump);
+function gunVM(id, sk) {
+  const { t, info } = buildKit(id), g = new THREE.Group(), sm = skinMat(sk);
+  const main = meshes(t.main, sm), mag = meshes(t.mag, sm), slide = meshes(t.slide, sm), pump = meshes(t.pump, sm);
   g.add(main, mag, slide, pump);
   const flame = addFlame(g, id);
   return { group: g, mag, slide, pump, info, flame };
 }
 // arme en vue externe : une seule géométrie, partagée
 const tpCache = {};
-function gunTP(id) {
+function gunTP(id, sk) {
   if (!tpCache[id]) {
     const { t, info } = buildKit(id);
     const parts = [];
@@ -302,8 +304,8 @@ function gunTP(id) {
     KEYS.forEach((k) => { const m = bt.mesh(k, mats()[k], true, false); if (m) parts.push(m); });
     tpCache[id] = { parts, info };
   }
-  const c = tpCache[id], g = new THREE.Group();
-  c.parts.forEach((m) => { const n = new THREE.Mesh(m.geometry, m.material); n.castShadow = true; g.add(n); });
+  const c = tpCache[id], g = new THREE.Group(), sm = skinMat(sk);
+  c.parts.forEach((m) => { const n = new THREE.Mesh(m.geometry, sm || m.material); n.castShadow = true; g.add(n); });
   addFlame(g, id);
   g.userData.info = c.info;
   return g;
@@ -458,9 +460,9 @@ class Rig {
     this.ph = 0; this.c = 0; this.kick = 0; this.dead = 0; this.deadDir = 1; this.deadSide = 0; this.deadHs = false; this.rl = 0; this.rnd = Math.random();
     this.actK = 0; this.actT = 0; this.actKind = 1; this.rlT = 0;
   }
-  setGun(id) {
+  setGun(id, sk) {
     if (this.gun) { this.gunMount.remove(this.gun); this.gun = null; }
-    this.gunId = id; const g = gunTP(id); this.gun = g; this.gunMount.add(g);
+    this.gunId = id; this.skin = sk || ''; const g = gunTP(id, sk); this.gun = g; this.gunMount.add(g);
     this.cls = g.userData.info.class; this.info = g.userData.info;
     const ri = this.cls === 'rifle' || this.cls === 'sniper' || this.cls === 'shotgun' || this.info.len > 0.4;
     this.long = ri;

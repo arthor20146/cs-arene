@@ -43,6 +43,15 @@ async function submitRange(res) {
   return r;
 }
 const top = (d, t) => api('top', { d, t });
+// pass de combat : équiper (skin = '' pour retirer) un skin débloqué
+async function equip(w, skin) {
+  if (!tok) return { ok: false, err: 'Connecte-toi pour équiper des skins' };
+  const r = await api('equip', { tok, w, skin: skin || '' });
+  if (r.ok && r.user) { user = r.user; emit(); }
+  else if (r.code === 401) setSession(null, null);
+  return r;
+}
+const skinOf = (w) => (user && user.eq && user.eq[w]) || '';
 
 /* ---------- fenêtre « Compte » ---------- */
 function h(tag, attrs) {
@@ -171,6 +180,6 @@ refresh();
 
 return {
   get user() { return user; }, token: () => tok, get isOpen() { return isOpen; },
-  on(fn) { listeners.push(fn); }, open, close, refresh, logout, submitRange, top, DIFF
+  on(fn) { listeners.push(fn); }, open, close, refresh, logout, submitRange, top, equip, skinOf, DIFF
 };
 })();

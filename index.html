@@ -100,6 +100,9 @@
 
 <!-- Compte joueur -->
 <div id="account" class="ov hide" role="dialog" aria-modal="true" aria-label="Compte"><div class="card" id="accCard"></div></div>
+<div id="bpToast"></div><div id="bpXp"></div>
+<!-- Pass de combat -->
+<div id="pass" class="ov hide" role="dialog" aria-modal="true" aria-label="Pass de combat"><div class="card bp-card" id="passCard"></div></div>
 
 <!-- Menu principal -->
 <div id="menu" class="ov"><div class="mwrap">
@@ -109,6 +112,7 @@
       <button class="nav on" id="navPlay">JOUER</button>
       <button class="nav" id="navRange">STAND DE TIR</button>
       <button class="nav" id="navTest">ZONE DE TEST</button>
+      <button class="nav" id="navPass">PASS DE COMBAT</button>
       <button class="nav" id="navAcc">COMPTE</button>
       <button class="nav" id="setMenu">PARAMÈTRES</button>
     </nav>
@@ -158,6 +162,7 @@
     <span class="lb-tab on">JOUER</span>
     <button class="lb-tab" id="lbRange" type="button">STAND DE TIR</button>
     <button class="lb-tab" id="lbTest" type="button">ZONE DE TEST</button>
+    <button class="lb-tab" id="lbPass" type="button">PASS DE COMBAT</button>
     <button class="lb-tab" id="lbAcc" type="button">COMPTE</button>
     <span class="lb-room" id="lbRoom"></span>
   </div>
@@ -185,6 +190,8 @@
 <script src="models.js"></script>
 <script src="settings.js"></script>
 <script src="account.js"></script>
+<script src="skins.js"></script>
+<script src="pass.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

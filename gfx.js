@@ -607,6 +607,9 @@ function buildWorld(M, force) {
   const G = new THREE.Group(); scene.add(G);
   if (cur.map !== M) cur.hidden = new Set();
   cur.group = G; cur.map = M; cur.rays = []; cur.allRays = []; cur.pieces = {}; cur.flick = [];
+  // parts : maillages rangés par usage (sert à l'export vers la version Godot)
+  cur.parts = { near: [], far: [], dec: [], ns: [], ground: null };
+  const tagp = (part, k, m) => { if (m) cur.parts[part].push([k, m]); return m; };
   const dust = style === 'dust', r = rng(M.id.length * 7 + (dust ? 91 : 92)), Far = new Batch();
   const mainB = new Batch(), mainD = new Batch(), B = mainB, D = mainD;
   const wallK = dust ? 'plaster' : 'concrete', baseK = dust ? 'stone' : 'concrete', groundK = dust ? 'sand' : 'asphalt';
@@ -626,7 +629,7 @@ function buildWorld(M, force) {
   const groundGeo = new THREE.CircleGeometry(600, 48);
   const ground = new THREE.Mesh(groundGeo, gm); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.ownMat = true; G.add(ground);
   const gRay = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), RAYMAT); gRay.rotation.x = -Math.PI / 2; gRay.visible = false; gRay.userData = { mat: dust ? 'sand' : 'stone', pen: 0 }; gRay.updateMatrixWorld(); rayGroup.add(gRay); cur.rays.push(gRay);
-  const ovT = paintGround(M);
+  const ovT = paintGround(M); cur.parts.ground = ovT;
   const ov = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), new THREE.MeshStandardMaterial({ map: ovT, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
   ov.rotation.x = -Math.PI / 2; ov.position.y = 0.012; ov.receiveShadow = true; ov.renderOrder = 1; ov.userData.ownMat = true; G.add(ov);
   if (!dust) { // flaques : reflets du ciel
@@ -827,18 +830,18 @@ function buildWorld(M, force) {
   }
   // assemblage
   const add = (m, parent) => { if (m) (parent || G).add(m); return m; };
-  ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(B.mesh(k, surfMat(k), true)));
-  add(B.mesh('ribsS', metalPlain(), true));
-  add(B.mesh('sand0', surfMat(groundK === 'sand' ? 'sand' : 'crate'), true));
-  ['plaster', 'stone', 'concrete', 'ribs'].forEach((k) => add(Far.mesh(k, surfMat(k), false, false)));
-  add(Far.mesh('ribsS', metalPlain(), true, false));
-  const dm = D.mesh('d', decalMat(), false); if (dm) { add(dm); dm.renderOrder = 2; }
-  const cl = clothB.mesh('c', clothMat(), true); if (cl) add(cl);
+  ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(tagp('near', k, B.mesh(k, surfMat(k), true))));
+  add(tagp('near', 'ribsS', B.mesh('ribsS', metalPlain(), true)));
+  add(tagp('near', 'sand0', B.mesh('sand0', surfMat(groundK === 'sand' ? 'sand' : 'crate'), true)));
+  ['plaster', 'stone', 'concrete', 'ribs'].forEach((k) => add(tagp('far', k, Far.mesh(k, surfMat(k), false, false))));
+  add(tagp('far', 'ribsS', Far.mesh('ribsS', metalPlain(), true, false)));
+  const dm = tagp('dec', 'd', D.mesh('d', decalMat(), false)); if (dm) { add(dm); dm.renderOrder = 2; }
+  const cl = tagp('near', 'c', clothB.mesh('c', clothMat(), true)); if (cl) add(cl);
   Object.keys(cur.pieces).forEach((i) => {
     const pc = cur.pieces[i], g = new THREE.Group();
-    ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(pc.B.mesh(k, surfMat(k), true), g));
-    add(pc.B.mesh('ribsS', metalPlain(), true), g);
-    const pd = pc.D.mesh('d', decalMat(), false); if (pd) { g.add(pd); pd.renderOrder = 2; }
+    ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(tagp('near', k, pc.B.mesh(k, surfMat(k), true)), g));
+    add(tagp('near', 'ribsS', pc.B.mesh('ribsS', metalPlain(), true)), g);
+    const pd = tagp('dec', 'd', pc.D.mesh('d', decalMat(), false)); if (pd) { g.add(pd); pd.renderOrder = 2; }
     pc.group = g; pc.B = pc.D = null; G.add(g);
   });
   applyHidden();
@@ -854,7 +857,7 @@ function buildWorld(M, force) {
       mx.compose(new THREE.Vector3(x, 0.02, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(r() * 3, r() * 3, r() * 3)), new THREE.Vector3(sc, sc * 0.7, sc));
       rocks.setMatrixAt(i, mx);
     }
-    rocks.receiveShadow = true; rocks.userData.ownMat = true; G.add(rocks);
+    rocks.receiveShadow = true; rocks.userData.ownMat = true; G.add(rocks); cur.parts.ns.push(['rock', rocks]);
   }
   return cur.rays;
 }
@@ -1136,7 +1139,7 @@ const fx = (function () {
 })();
 
 return {
-  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, get sky() { return cur.sky; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, setHidden, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
+  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, get sky() { return cur.sky; }, get parts() { return cur.parts; }, get allRays() { return cur.allRays; }, SKY, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, setHidden, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
   get scene() { return scene; }, get cam() { return cam; }, get renderer() { return renderer; }, get vmScene() { return vmScene; }, get rays() { return cur.rays; }
 };
 })();

@@ -7,7 +7,7 @@ const WebSocket = require('ws');
 // Docker : fichiers client dans ./public ; dépôt à plat (npm start en local) : à la racine
 const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
 const CS = require(path.join(PUB, 'shared.js'));
-const { CFG, ZONES, WEAPONS, GREN, MAPS, phaseBoxes } = CS;
+const { CFG, ZONES, WEAPONS, GREN, MAPS, phaseBoxes, SKINS, PASS, passTier, MASTERY, masteryLv } = CS;
 const GR = 0.11; // rayon d'une grenade (m)
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const shuffled = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -52,7 +52,47 @@ const Acc = (function () {
   const levelOf = (x) => Math.floor(Math.sqrt(x / 120)) + 1;   // niveau n à partir de 120 × (n-1)² XP
   function pub(u) {
     const s = Object.assign(STAT0(), u.stats), xp = xpOf(s), lv = levelOf(xp);
-    return { name: u.name, created: u.created, stats: s, range: u.range || {}, xp, lv, cur: 120 * (lv - 1) * (lv - 1), next: 120 * lv * lv };
+    const bx = u.bp | 0, bt = passTier(bx);
+    return { name: u.name, created: u.created, stats: s, range: u.range || {}, xp, lv, cur: 120 * (lv - 1) * (lv - 1), next: 120 * lv * lv,
+      bp: { xp: bx, tier: bt.tier, cur: bt.cur, need: bt.need }, eq: Object.assign({}, u.eq || {}), ms: Object.assign({}, u.ms || {}) };
+  }
+  // pass de combat : ajoute de l'XP, renvoie le palier et s'il vient d'en passer un (ou plusieurs)
+  function pass(k, x) {
+    const u = db.users[k]; if (!u || !(x > 0)) return { tier: u ? passTier(u.bp | 0).tier : 0, up: [] };
+    const t0 = passTier(u.bp | 0).tier;
+    u.bp = (u.bp | 0) + Math.round(x); save();
+    const t1 = passTier(u.bp).tier, up = [];
+    for (let t = t0 + 1; t <= t1; t++) up.push(t);
+    return { tier: t1, up, xp: u.bp };
+  }
+  // maîtrise d'une arme : ajoute de l'XP, renvoie les niveaux passés
+  function mastery(k, w, x) {
+    const u = db.users[k]; if (!u || !WEAPONS[w] || !(x > 0)) return { up: [] };
+    const ms = u.ms || (u.ms = {}), l0 = masteryLv(ms[w] | 0).lv;
+    ms[w] = (ms[w] | 0) + Math.round(x); save();
+    const l1 = masteryLv(ms[w]).lv, up = [];
+    for (let l = l0 + 1; l <= l1; l++) up.push(l);
+    return { lv: l1, xp: ms[w], up };
+  }
+  // skins équipés : { arme: skin } (seulement les skins débloqués)
+  const eqOf = (k) => Object.assign({}, (db.users[k] && db.users[k].eq) || {});
+  const eqListeners = [];
+  function equip(m) {
+    const u = byTok(m.tok); if (!u) return { ok: false, err: 'Session expirée, reconnecte-toi', code: 401 };
+    const w = String(m.w || ''), id = String(m.skin || '');
+    if (!WEAPONS[w]) return { ok: false, err: 'Arme inconnue' };
+    const eq = u.eq || (u.eq = {});
+    if (id === '') delete eq[w];
+    else {
+      const S = SKINS[id];
+      if (!S || S.w !== w) return { ok: false, err: 'Skin inconnu' };
+      if (S.ms) { if (masteryLv((u.ms || {})[w] | 0).lv < S.ms) return { ok: false, err: 'Skin pas encore débloqué (maîtrise niveau ' + S.ms + ')' }; }
+      else if (passTier(u.bp | 0).tier < S.tier) return { ok: false, err: 'Skin pas encore débloqué (palier ' + S.tier + ')' };
+      eq[w] = id;
+    }
+    save();
+    eqListeners.forEach((f) => f(keyOf(u), Object.assign({}, eq)));
+    return { ok: true, user: pub(u) };
   }
   const NAME_RE = /^[A-Za-z0-9_-]{3,16}$/;
   const hash = (pass, salt) => new Promise((res, rej) => crypto.scrypt(pass, salt, 64, (e, k) => (e ? rej(e) : res(k.toString('hex')))));
@@ -122,8 +162,14 @@ const Acc = (function () {
     const rec = !prev || r.score > prev.score;
     if (rec) R[key] = r;
     (u.stats || (u.stats = STAT0())).range = (u.stats.range || 0) + 1;
+    // pass : un peu d'XP par série terminée (plafonné chaque jour)
+    const day = new Date().toISOString().slice(0, 10);
+    if (!u.bpDay || u.bpDay.d !== day) u.bpDay = { d: day, x: 0 };
+    const gx = Math.min(PASS.gain.range, PASS.gain.rangeDay - u.bpDay.x);
+    let up = [];
+    if (gx > 0) { u.bpDay.x += gx; up = pass(keyOf(u), gx).up; }
     save();
-    return { ok: true, rec, prev: prev ? prev.score : 0, user: pub(u) };
+    return { ok: true, rec, prev: prev ? prev.score : 0, bpx: Math.max(0, gx), up, user: pub(u) };
   }
   function top(d, t) {
     const key = d + '_' + (t | 0), list = [];
@@ -146,10 +192,11 @@ const Acc = (function () {
       case 'password': return limited('p' + ip, 8) ? SLOW : changePass(m.tok, m.old, m.pass);
       case 'range': return range(m);
       case 'top': return top(m.d, m.t);
+      case 'equip': return equip(m);
     }
     return { ok: false, err: 'Introuvable', code: 404 };
   }
-  return { route, byTok, keyOf, stat, level, exists: (n) => !!db.users[String(n).toLowerCase()] };
+  return { route, byTok, keyOf, stat, level, pass, mastery, eqOf, onEquip: (f) => eqListeners.push(f), exists: (n) => !!db.users[String(n).toLowerCase()] };
 })();
 
 function json(res, code, o) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); }
@@ -185,6 +232,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server, maxPayload: 2048 });
 const rooms = new Map();
+Acc.onEquip((k, eq) => rooms.forEach((r) => r.players.forEach((p) => { if (p.acc === k) p.eq = eq; })));
 const num = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
 const r2 = (v) => Math.round(v * 100) / 100;
 const send = (ws, o) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o)); };
@@ -509,15 +557,25 @@ class Room {
     const winTarget = CFG.maxRounds / 2 + 1;
     const over = this.score[winner] >= winTarget;
     const mvp = this.pickMvp(winner, hero);
-    // statistiques des comptes
+    // statistiques des comptes et XP du pass (une manche ne compte que s'il y avait des adversaires)
+    const real = this.started.T > 0 && this.started.CT > 0, G = PASS.gain;
     this.all().forEach((p) => {
       if (!p.acc || !p.team) return;
       const d = { rounds: 1, roundWins: p.team === winner ? 1 : 0, mvp: mvp === p ? 1 : 0 };
       if (over) { d.matches = 1; d.matchWins = p.team === winner ? 1 : 0; }
       p.lv = Acc.stat(p.acc, d);
+      if (real) this.passGain(p, G.round + d.roundWins * G.roundWin + d.mvp * G.mvp + (over ? G.match + d.matchWins * G.matchWin : 0));
     });
     this.bcast({ type: 'rend', w: winner, r: reason, sc: this.score, over: over ? 1 : 0, mvp: mvp ? { i: mvp.id, n: mvp.name, k: mvp.rk, h: hero && mvp.id === hero ? 1 : 0 } : null });
     if (over) { this.phase = 'match'; this.phaseEnd = Date.now() + 10000; }
+  }
+
+  // XP du pass de combat (parties en ligne seulement) ; prévient le joueur quand il passe un palier
+  passGain(p, x) {
+    if (!p.acc || this.practice || !(x > 0)) return;
+    const r = Acc.pass(p.acc, x);
+    send(p.ws, { type: 'bpx', x, xp: r.xp });
+    r.up.forEach((t) => send(p.ws, { type: 'bp', t, sk: PASS.tiers[t - 1].skin }));
   }
 
   checkEnd(now) {
@@ -552,6 +610,14 @@ class Room {
       const foes = this.started[v.team] || 0;
       if (foes >= 3 && rk >= Math.min(5, foes)) { ace = 1; k.ac++; }
       if (k.acc && !this.practice) k.lv = Acc.stat(k.acc, { kills: 1, hs: hs ? 1 : 0, aces: ace });
+      if (k.team !== v.team) {
+        this.passGain(k, PASS.gain.kill + (hs ? PASS.gain.hs : 0) + ace * PASS.gain.ace);
+        // maîtrise de l'arme utilisée
+        if (k.acc && !this.practice && WEAPONS[wid]) {
+          const G = MASTERY.gain, r = Acc.mastery(k.acc, wid, (wid === 'knife' ? G.knife : G.kill) + (hs ? G.hs : 0));
+          r.up.forEach((l) => { const rw = MASTERY.rewards.find((x) => x.lv === l); send(k.ws, { type: 'ms', w: wid, lv: l, sk: rw ? wid + '_' + rw.k : '' }); });
+        }
+      }
     }
     if (v.acc && !this.practice) v.lv = Acc.stat(v.acc, { deaths: 1 });
     this.bcast({ type: 'kill', k: k ? k.id : 0, v: v.id, w: wid || 'bomb', hs: hs ? 1 : 0, rk, fb, ace });
@@ -981,7 +1047,7 @@ class Room {
       i: p.id, n: p.name, t: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), r: r2(p.yaw), p: r2(p.pitch),
       c: p.c, w: p.inv.cur, a: p.alive ? 1 : 0, rdy: p.ready ? 1 : 0, k: p.k, d: p.d, h: p.helmet ? 1 : 0, l: p.rl ? 1 : 0,
       q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0, ac: p.ac, mv: p.mv,
-      vf: p.acc ? 1 : 0, lv: p.lv || 0
+      vf: p.acc ? 1 : 0, lv: p.lv || 0, sk: (p.eq && p.eq[p.inv.cur]) || undefined
     }));
     const buyOpen = this.practice || this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
@@ -1134,7 +1200,7 @@ class Room {
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
       k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, lastThrow: 0, alive_ws: true, rl: 0, am: {}, bought: {}, g: { flash: 0, smoke: 0, he: 0, molo: 0 }
     };
-    p.ready = false; p.opt = { god: false, infN: false }; p.acc = acc ? acc.key : null; p.lv = acc ? acc.lv : 0;
+    p.ready = false; p.opt = { god: false, infN: false }; p.acc = acc ? acc.key : null; p.lv = acc ? acc.lv : 0; p.eq = acc ? Acc.eqOf(acc.key) : {};
     this.players.set(id, p);
     if (this.lobby && !this.host) this.host = id;
     p.team = this.chooseTeam(p, want);

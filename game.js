@@ -100,6 +100,16 @@ function collide() {
       }
     }
   }
+  // barrières sans hauteur (stand de tir : on ne passe pas le comptoir)
+  for (const b of (MAP.bar || [])) {
+    const hx = b.w / 2, hz = b.d / 2;
+    const cx = clamp(P.x, b.x - hx, b.x + hx), cz = clamp(P.z, b.z - hz, b.z + hz);
+    const dx = P.x - cx, dz = P.z - cz, d2 = dx * dx + dz * dz;
+    if (d2 < R * R) {
+      if (d2 > 1e-8) { const d = Math.sqrt(d2); P.x = cx + dx / d * R; P.z = cz + dz / d * R; }
+      else P.z = b.z + hz + R;   // coincé dedans : on revient côté tireur
+    }
+  }
   P.x = clamp(P.x, -39.6, 39.6); P.z = clamp(P.z, -39.6, 39.6);
 }
 function groundAt(x, z, y) {
@@ -469,7 +479,7 @@ function setRemoteTeam(r, t) {
   r.g.add(r.rig.root); r.hit = r.rig.hits;
   r.w = null;
 }
-function setRemoteGun(r, w) { r.w = w; r.rig.setGun(w); }
+function setRemoteGun(r, w, sk) { r.w = w; r.sk = sk || ''; r.rig.setGun(w, sk); }
 function removeRemote(id) {
   const r = remotes.get(id); if (!r) return;
   scene.remove(r.g); remotes.delete(id);
@@ -546,7 +556,8 @@ const flashMat = new THREE.MeshBasicMaterial({ map: flashTex, transparent: true,
 
 function buildVM(id) {
   if (V) vmPivot.remove(V.group);
-  V = Models.gunVM(id);
+  V = Models.gunVM(id, Account.skinOf(id));   // skin équipé (pass de combat)
+  V.id = id; V.sk = Account.skinOf(id);
   vmPivot.add(V.group);
   V.pos = VMPOS[V.info.class] || VMPOS.rifle;
   const t = myTeam === 'CT' ? 'CT' : 'T';
@@ -988,6 +999,9 @@ function onMsg(m) {
     case 'shoot': onRemoteShot(m); break;
     case 'kill': onKill(m); break;
     case 'hitc': if (m.kill && cfg.hitSound) Snd.kill(); break;
+    case 'bpx': bpXp(m.x); break;
+    case 'bp': bpUnlock(m.t, m.sk); break;
+    case 'ms': msUp(m.w, m.lv, m.sk); break;
     case 'got': gotAmmo[m.w] = { mag: m.mag, res: m.res }; if (m.sel) pickSel = m.w; Snd.part('in'); break;
     case 'hurt': onHurt(m); break;
     case 'msg': notice(m.text, m.kind === 'err' ? '#ff7b6e' : m.kind === 'bomb' ? '#ff9a3c' : '#ffd65a'); break;
@@ -1035,7 +1049,7 @@ function onSnap(m) {
     r.e = e; r.alive = !!e.a;
     if (r.team !== e.t && e.t) setRemoteTeam(r, e.t);
     if (!r.rig) continue;
-    if (r.w !== e.w) setRemoteGun(r, e.w);
+    if (r.w !== e.w || r.sk !== (e.sk || '')) setRemoteGun(r, e.w, e.sk);
     r.tp.set(e.x, e.y, e.z); r.tyaw = e.r;
     if (!r.init) { r.g.position.copy(r.tp); r.g.rotation.y = e.r; r.init = true; }
   }
@@ -1460,7 +1474,7 @@ function spawnTarget(D) {
   let x = 0, z = 0, ok = false;
   for (let i = 0; i < 30 && !ok; i++) {
     const dist = D.dmin + Math.random() * (D.dmax - D.dmin);
-    x = -18.5 + Math.random() * 37; z = 30.5 - dist;
+    x = -12 + Math.random() * 24; z = 30.5 - dist;
     ok = z > -34.5 && !BOXES.some((b) => b.h > 0.3 && b.h < 9 && Math.abs(x - b.x) < b.w / 2 + 0.8 && Math.abs(z - b.z) < b.d / 2 + 0.8) &&
       tgts.every((t) => Math.hypot(t.x - x, t.z - z) > 2.5);
   }
@@ -1531,7 +1545,7 @@ function updateTargets(dt) {
     } else if (t.st === 'up') {
       if (t.vx) {
         t.x += t.vx * dt;
-        if (t.x < -19 || t.x > 19) { t.vx = -t.vx; t.x = clamp(t.x, -19, 19); }
+        if (t.x < -12.8 || t.x > 12.8) { t.vx = -t.vx; t.x = clamp(t.x, -12.8, 12.8); }
         t.root.position.x = t.x; t.root.rotation.y = Math.atan2(P.x - t.x, P.z - t.z);
       }
       if (t.t >= t.life) {   // trop lent : la cible se baisse
@@ -1974,6 +1988,7 @@ document.querySelectorAll('#maps button').forEach((b) => b.addEventListener('cli
 $('navRange').addEventListener('click', () => pickMode('range'));
 $('navTest').addEventListener('click', () => pickMode('sandbox'));
 $('navAcc').addEventListener('click', () => Account.open());
+$('navPass').addEventListener('click', () => Pass.open());
 
 // compte : le pseudo du compte remplace le champ PSEUDO
 function paintAccount(u) {
@@ -1987,6 +2002,34 @@ function paintAccount(u) {
   $('lbAcc').textContent = u ? '✔ ' + u.name.toUpperCase() + ' · NV ' + u.lv : 'COMPTE';
 }
 Account.on(paintAccount); paintAccount(Account.user);
+// skin changé depuis le pass : l'arme en main se met à jour
+Account.on(() => { if (V && V.id && V.sk !== Account.skinOf(V.id) && !isNade(V.id)) buildVM(V.id); });
+
+/* ---------- pass de combat : XP gagnée et paliers débloqués ---------- */
+let bpXpT = 0, bpXpSum = 0, bpToastT = 0;
+function bpXp(x) {
+  const el = $('bpXp'); if (!el) return;
+  bpXpSum = (performance.now() - bpXpT < 2500 ? bpXpSum : 0) + x; bpXpT = performance.now();
+  el.textContent = '+' + bpXpSum + ' XP · pass de combat'; el.classList.add('on');
+  setTimeout(() => { if (performance.now() - bpXpT >= 2400) el.classList.remove('on'); }, 2500);
+}
+function msUp(w, lv, sk) {
+  if (sk && CS.SKINS[sk]) { bpToast('MAÎTRISE ' + (WEAPONS[w] ? WEAPONS[w].n.toUpperCase() : w) + ' · NIVEAU ' + lv, sk, 'Skin exclusif débloqué · équipe-le depuis le menu'); }
+  else notice('Maîtrise ' + (WEAPONS[w] ? WEAPONS[w].n : w) + ' : niveau ' + lv, '#ffd24a');
+  Account.refresh();
+}
+function bpUnlock(t, sk) { bpToast('PALIER ' + t + ' DÉBLOQUÉ', sk, 'Pass de combat · équipe-le depuis le menu'); Account.refresh(); }
+function bpToast(title, sk, sub) {
+  const el = $('bpToast'); if (!el || !CS.SKINS[sk]) return;
+  el.innerHTML = '';
+  const sw = document.createElement('i'); sw.className = 'bp-sw'; sw.style.backgroundImage = 'url(' + Skins.thumb(sk, 96) + ')';
+  const tx = document.createElement('div');
+  tx.innerHTML = '<small></small><b></b><span></span>';
+  tx.querySelector('small').textContent = title; tx.querySelector('b').textContent = Skins.label(sk); tx.querySelector('span').textContent = sub;
+  el.append(sw, tx); el.classList.add('on');
+  Snd.multi && Snd.multi(2);
+  clearTimeout(bpToastT); bpToastT = setTimeout(() => el.classList.remove('on'), 5000);
+}
 
 function startGame() {
   Snd.init(); applyVolume(); Snd.setAmbientLevel(cfg.ambient); Snd.setAmbient(MAP.style || MAP.id);
@@ -2281,6 +2324,7 @@ function goPractice(mode) { leaving = true; try { sessionStorage.setItem('cs_go'
 $('lbRange').addEventListener('click', () => goPractice('range'));
 $('lbTest').addEventListener('click', () => goPractice('sandbox'));
 $('lbAcc').addEventListener('click', () => Account.open());
+$('lbPass').addEventListener('click', () => Pass.open());
 $('lbJoinT').addEventListener('click', () => send({ type: 'team', team: 'T' }));
 $('lbJoinCT').addEventListener('click', () => send({ type: 'team', team: 'CT' }));
 $('lbReady').addEventListener('click', () => { const on = !(S.pl && S.pl.get(myId) && S.pl.get(myId).rdy); send({ type: 'ready', on: on ? 1 : 0 }); });

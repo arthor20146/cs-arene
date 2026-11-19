@@ -206,7 +206,7 @@
   function rangeSpawns() {
     const s = { T: [], CT: [] };
     for (let i = 0; i < 10; i++) {
-      const p = { x: -13.5 + (i % 5) * 6.75, y: 0, z: 33.2 + (i / 5 | 0) * 2.4, yaw: 0 };
+      const p = { x: -11.2 + (i % 5) * 5.6, y: 0, z: 33.2 + (i / 5 | 0) * 2.4, yaw: 0 };
       s.T.push(p); s.CT.push(Object.assign({}, p));
     }
     return s;
@@ -391,19 +391,21 @@
       id: 'range', name: 'Stand de tir', style: 'docks', practice: 1,
       theme: { sky: 0xaebccb, ground: '#6e7277', wall: '#6f6a64', crate: '#7a5a34' },
       boxes: ENCLOSURE.concat([
-        // couloir de tir de 44 m de large, butte au fond
-        B(-22.5, 0, 1, 80, 6.5), B(22.5, 0, 1, 80, 6.5), B(0, -37.5, 44, 2, 9),
-        // pas de tir : comptoir (on tire par-dessus), passages sur les côtés, séparations des postes
-        B(0, 31.2, 34, 0.5, 1.1, 'w'),
-        B(-10.1, 32.6, 0.25, 2, 1.6, 'w'), B(-3.4, 32.6, 0.25, 2, 1.6, 'w'), B(3.4, 32.6, 0.25, 2, 1.6, 'w'), B(10.1, 32.6, 0.25, 2, 1.6, 'w'),
+        // couloir de tir de 28 m de large, butte au fond
+        B(-14.5, 0, 1, 80, 6.5), B(14.5, 0, 1, 80, 6.5), B(0, -37.5, 28, 2, 9),
+        // pas de tir : comptoir sur toute la largeur (on tire par-dessus), séparations des 5 postes
+        B(0, 31.2, 28, 0.5, 1.1, 'w'),
+        B(-8.4, 32.6, 0.25, 2, 1.6, 'w'), B(-2.8, 32.6, 0.25, 2, 1.6, 'w'), B(2.8, 32.6, 0.25, 2, 1.6, 'w'), B(8.4, 32.6, 0.25, 2, 1.6, 'w'),
         // couvertures dans la zone des cibles
-        B(-12, 14, 3, 1, 1.4), B(9, 6, 3, 1, 1.4), B(-3, -6, 4, 1, 2.4), B(14, -16, 3, 1, 1.4), B(-15, -24, 3, 1, 1.4), B(5, -27, 4, 1, 2.4),
+        B(-9, 14, 3, 1, 1.4), B(7, 6, 3, 1, 1.4), B(-2, -6, 4, 1, 2.4), B(9, -16, 3, 1, 1.4), B(-9, -24, 3, 1, 1.4), B(4, -27, 4, 1, 2.4),
         // fond du stand : établis
-        B(-18, 37.5, 4, 2, 1.1), B(18, 37.5, 4, 2, 1.1)
+        B(-11.5, 38.2, 4, 1.6, 1.1), B(11.5, 38.2, 4, 1.6, 1.1)
       ]),
+      // barrière invisible au-dessus du comptoir : on tire par-dessus, mais on ne passe pas dans la zone des cibles
+      bar: [{ x: 0, z: 31.2, w: 28, d: 0.5 }],
       sites: {},
       // lignes au sol tous les 10 m depuis le pas de tir
-      stripes: [[-21.5, 30.5, 21.5, 30.5], [-21.5, 20.5, 21.5, 20.5], [-21.5, 10.5, 21.5, 10.5], [-21.5, 0.5, 21.5, 0.5], [-21.5, -9.5, 21.5, -9.5], [-21.5, -19.5, 21.5, -19.5], [-21.5, -29.5, 21.5, -29.5]],
+      stripes: [[-13.5, 30.5, 13.5, 30.5], [-13.5, 20.5, 13.5, 20.5], [-13.5, 10.5, 13.5, 10.5], [-13.5, 0.5, 13.5, 0.5], [-13.5, -9.5, 13.5, -9.5], [-13.5, -19.5, 13.5, -19.5], [-13.5, -29.5, 13.5, -29.5]],
       spawns: rangeSpawns()
     },
 
@@ -457,5 +459,91 @@
     return (M._phase = list.slice(0, 16));
   }
 
-  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes };
+  /* ---------- Pass de combat (gratuit, il se débloque en jouant avec un compte) ----------
+     Chaque palier donne un skin d'arme ou de couteau. pat = motif, c = couleurs, sc = répétitions du motif par mètre,
+     met / rough = aspect métallique et rugosité, glow = lueur (motifs néon). */
+  const RAR = {
+    c: { n: 'Commun', col: '#8ea7c6' }, r: { n: 'Rare', col: '#4b7bff' }, e: { n: 'Épique', col: '#9a5cff' },
+    l: { n: 'Légendaire', col: '#e04be8' }, m: { n: 'Mythique', col: '#f0b43c' }
+  };
+  const SKINS = {
+    glock_sable:   { w: 'glock',     n: 'Sable chaud',      r: 'c', pat: 'camo',     c: ['#b49a6c', '#8a7048', '#d8c49a', '#5e4a30'], sc: 5, met: 0.1, rough: 0.75 },
+    usp_nuit:      { w: 'usp',       n: 'Bleu nuit',        r: 'c', pat: 'solid',    c: ['#1d2a44', '#2c3d60'], sc: 4, met: 0.35, rough: 0.45 },
+    p250_numerique:{ w: 'p250',      n: 'Numérique',        r: 'c', pat: 'digital',  c: ['#5a5f66', '#3a3e44', '#8a9098', '#22252a'], sc: 5, met: 0.15, rough: 0.7 },
+    mac10_neon:    { w: 'mac10',     n: 'Néon rose',        r: 'r', pat: 'circuit',  c: ['#16121c', '#ff3fa8', '#7a2a66'], sc: 4, met: 0.3, rough: 0.5, glow: 1.6 },
+    mp9_hexa:      { w: 'mp9',       n: 'Hexa sarcelle',    r: 'r', pat: 'hex',      c: ['#0f2e33', '#1f7a80', '#56d3cf'], sc: 6, met: 0.3, rough: 0.5 },
+    knife_damas:   { w: 'knife',     n: 'Damas',            r: 'e', pat: 'damascus', c: ['#5d636b', '#c9ced6', '#2a2e33'], sc: 10, met: 0.9, rough: 0.28 },
+    nova_foret:    { w: 'nova',      n: 'Forêt',            r: 'c', pat: 'camo',     c: ['#3c4a2c', '#5d6b3c', '#232a1a', '#7d7650'], sc: 3, met: 0.1, rough: 0.8 },
+    ump45_carbone: { w: 'ump45',     n: 'Carbone',          r: 'r', pat: 'carbon',   c: ['#141518', '#3a3d44'], sc: 14, met: 0.35, rough: 0.35 },
+    tec9_eclats:   { w: 'tec9',      n: 'Éclaboussures',    r: 'r', pat: 'splatter', c: ['#e9e4d8', '#e8402c', '#1b1b1d', '#f2b632'], sc: 4, met: 0.05, rough: 0.6 },
+    famas_urbain:  { w: 'famas',     n: 'Urbain',           r: 'r', pat: 'digital',  c: ['#6c7a88', '#3d4854', '#a7b4c0', '#22292f'], sc: 4, met: 0.15, rough: 0.7 },
+    galil_tigre:   { w: 'galil',     n: 'Tigre',            r: 'r', pat: 'tiger',    c: ['#d9822b', '#1a1410', '#f1b45a'], sc: 3, met: 0.1, rough: 0.6 },
+    knife_tigre:   { w: 'knife',     n: 'Dents de tigre',   r: 'e', pat: 'tiger',    c: ['#e8a13a', '#24160c', '#ffd27a'], sc: 9, met: 0.75, rough: 0.3 },
+    five_marbre:   { w: 'fiveseven', n: 'Marbre blanc',     r: 'e', pat: 'marble',   c: ['#e9e6df', '#9aa0a8', '#c8b07a'], sc: 4, met: 0.2, rough: 0.3 },
+    p90_toxique:   { w: 'p90',       n: 'Toxique',          r: 'r', pat: 'splatter', c: ['#202418', '#a6ff2e', '#4c6a12', '#e8ff7a'], sc: 3, met: 0.1, rough: 0.6, glow: 0.7 },
+    xm_ecailles:   { w: 'xm1014',    n: 'Écailles',         r: 'e', pat: 'scales',   c: ['#1f3a2c', '#4f9a6a', '#0d1a12'], sc: 7, met: 0.45, rough: 0.4 },
+    deagle_laiton: { w: 'deagle',    n: 'Laiton poli',      r: 'e', pat: 'solid',    c: ['#b48a3c', '#e0bd6a'], sc: 4, met: 0.95, rough: 0.22 },
+    sg_desert:     { w: 'sg553',     n: 'Désert',           r: 'r', pat: 'digital',  c: ['#c2a878', '#9a8058', '#e2d0a8', '#6a5638'], sc: 4, met: 0.1, rough: 0.75 },
+    knife_aurore:  { w: 'knife',     n: 'Aurore',           r: 'e', pat: 'marble',   c: ['#2a1f5c', '#e0479e', '#3fd0ff'], sc: 6, met: 0.85, rough: 0.2 },
+    aug_circuit:   { w: 'aug',       n: 'Circuit',          r: 'e', pat: 'circuit',  c: ['#0b151c', '#2ee6ff', '#145a6e'], sc: 4, met: 0.3, rough: 0.45, glow: 1.5 },
+    m4_hexnuit:    { w: 'm4a1',      n: 'Hexa nuit',        r: 'e', pat: 'hex',      c: ['#0c0e14', '#2a3350', '#6f8cff'], sc: 6, met: 0.4, rough: 0.4, glow: 0.6 },
+    ak_tigre:      { w: 'ak47',      n: 'Tigre rouge',      r: 'e', pat: 'tiger',    c: ['#b3201c', '#140c0c', '#ff5a3a'], sc: 3, met: 0.15, rough: 0.5 },
+    ssg_abysses:   { w: 'ssg08',     n: 'Abysses',          r: 'e', pat: 'waves',    c: ['#06223e', '#1b6aa8', '#7fd6ff'], sc: 3, met: 0.3, rough: 0.4 },
+    glock_dragon:  { w: 'glock',     n: 'Dragon',           r: 'l', pat: 'scales',   c: ['#5a0c0c', '#d8321e', '#ffb23a'], sc: 9, met: 0.55, rough: 0.35 },
+    knife_jade:    { w: 'knife',     n: 'Écailles de jade', r: 'l', pat: 'scales',   c: ['#0e3a2a', '#2fb57a', '#b6ffd6'], sc: 14, met: 0.8, rough: 0.22 },
+    m4_royal:      { w: 'm4a1',      n: 'Marbre royal',     r: 'l', pat: 'marble',   c: ['#2a0f45', '#7b3fd0', '#e6c46a'], sc: 3, met: 0.5, rough: 0.25 },
+    awp_neon:      { w: 'awp',       n: 'Néon vert',        r: 'l', pat: 'circuit',  c: ['#06120a', '#3dff6e', '#1c6b33'], sc: 3, met: 0.3, rough: 0.4, glow: 1.8 },
+    ak_arabesque:  { w: 'ak47',      n: 'Arabesque dorée',  r: 'l', pat: 'damascus', c: ['#1a1206', '#d9a83a', '#5a3d10'], sc: 4, met: 0.85, rough: 0.28 },
+    usp_carbone:   { w: 'usp',       n: 'Carbone rouge',    r: 'l', pat: 'carbon',   c: ['#1a0606', '#c4221c'], sc: 16, met: 0.45, rough: 0.3 },
+    awp_dragon:    { w: 'awp',       n: 'Dragon d\'or',     r: 'l', pat: 'scales',   c: ['#3a2206', '#e2a43a', '#fff0b0'], sc: 6, met: 0.85, rough: 0.25 },
+    knife_or:      { w: 'knife',     n: 'Or massif',        r: 'm', pat: 'solid',    c: ['#c8922a', '#ffd86a'], sc: 6, met: 1.0, rough: 0.15 }
+  };
+  // ordre des récompenses : palier 1 à 30
+  const PASS_ORDER = ['glock_sable', 'usp_nuit', 'p250_numerique', 'mac10_neon', 'mp9_hexa', 'knife_damas', 'nova_foret', 'ump45_carbone', 'tec9_eclats', 'famas_urbain',
+    'galil_tigre', 'knife_tigre', 'five_marbre', 'p90_toxique', 'xm_ecailles', 'deagle_laiton', 'sg_desert', 'knife_aurore', 'aug_circuit', 'm4_hexnuit',
+    'ak_tigre', 'ssg_abysses', 'glock_dragon', 'knife_jade', 'm4_royal', 'awp_neon', 'ak_arabesque', 'usp_carbone', 'awp_dragon', 'knife_or'];
+  // XP pour passer chaque palier : 100, 105, 110… (≈ 5 200 XP au total, quelques heures de jeu)
+  const PASS = {
+    season: 'Saison 1', tiers: PASS_ORDER.map((id, i) => ({ t: i + 1, skin: id, xp: 100 + 5 * i })),
+    // gains (parties en ligne, pas en entraînement)
+    gain: { round: 15, roundWin: 20, kill: 15, hs: 5, ace: 75, mvp: 30, match: 60, matchWin: 120, range: 25, rangeDay: 250 }
+  };
+  PASS_ORDER.forEach((id, i) => { SKINS[id].id = id; SKINS[id].tier = i + 1; });
+
+  /* ---------- Maîtrise des armes : chaque arme gagne des niveaux avec ses éliminations ----------
+     Niveaux 1 à 10 ; skins exclusifs aux niveaux 3, 6 et 10 (on ne les obtient pas autrement). */
+  const MASTERY = {
+    max: 10, xp: (l) => 40 + 20 * (l - 1),                 // XP pour passer du niveau l-1 au niveau l
+    gain: { kill: 10, hs: 5, knife: 15 },
+    rewards: [
+      { lv: 3, k: 'm1', n: 'Vétéran', r: 'r' },
+      { lv: 6, k: 'm2', n: 'Élite', r: 'e' },
+      { lv: 10, k: 'm3', n: 'Maître', r: 'm' }
+    ]
+  };
+  Object.keys(WEAPONS).filter((w) => !GREN[w]).forEach((w, i) => {
+    const hue = (i * 47) % 360, hsl = (h, sat, l) => {   // couleur propre à chaque arme pour les skins de maîtrise
+      sat /= 100; l /= 100; const k = (n) => (n + h / 30) % 12, a = sat * Math.min(l, 1 - l);
+      const f = (n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+      return '#' + [f(0), f(8), f(4)].map((x) => x.toString(16).padStart(2, '0')).join('');
+    };
+    SKINS[w + '_m1'] = { w, n: 'Vétéran', r: 'r', pat: 'carbon', c: ['#14161a', hsl(hue, 45, 32)], sc: w === 'knife' ? 18 : 12, met: 0.45, rough: 0.35, ms: 3 };
+    SKINS[w + '_m2'] = { w, n: 'Élite', r: 'e', pat: 'hex', c: ['#0b0d12', hsl(hue, 55, 28), hsl(hue, 90, 62)], sc: w === 'knife' ? 12 : 6, met: 0.5, rough: 0.35, glow: 1.0, ms: 6 };
+    SKINS[w + '_m3'] = { w, n: 'Maître', r: 'm', pat: 'damascus', c: ['#3a2a0c', '#f2c45a', hsl(hue, 80, 45)], sc: w === 'knife' ? 9 : 4, met: 0.95, rough: 0.2, glow: 0.35, ms: 10 };
+  });
+  Object.keys(SKINS).forEach((id) => { SKINS[id].id = id; });
+  // niveau de maîtrise pour x XP : { lv, cur, need }
+  function masteryLv(x) {
+    let l = 0; x = Math.max(0, x | 0);
+    while (l < MASTERY.max && x >= MASTERY.xp(l + 1)) { x -= MASTERY.xp(l + 1); l++; }
+    return { lv: l, cur: l < MASTERY.max ? x : 0, need: l < MASTERY.max ? MASTERY.xp(l + 1) : 0 };
+  }
+  // palier atteint avec x XP : { tier, cur (XP dans le palier), need (XP du palier en cours, 0 au maximum) }
+  function passTier(x) {
+    let t = 0; x = Math.max(0, x | 0);
+    while (t < PASS.tiers.length && x >= PASS.tiers[t].xp) { x -= PASS.tiers[t].xp; t++; }
+    return { tier: t, cur: t < PASS.tiers.length ? x : 0, need: t < PASS.tiers.length ? PASS.tiers[t].xp : 0 };
+  }
+
+  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv };
 });
