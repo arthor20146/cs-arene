@@ -9,17 +9,28 @@ const C = {
 };
 const CS_W = (id) => (window.CS && CS.WEAPONS[id]) || {};
 const M = {};
+// matériaux texturés (textures procédurales de gfx.js, en niveaux de gris : la couleur vient des sommets)
+function surfaceMat(k, o, ns) {
+  const s = GFX.getSurface(k);
+  return new THREE.MeshStandardMaterial(Object.assign({ map: s.map, normalMap: s.normalMap, roughnessMap: s.roughnessMap, roughness: 1, vertexColors: true, normalScale: new THREE.Vector2(ns || 0.6, ns || 0.6) }, o || {}));
+}
 function mats() {
   if (M.metal) return M;
-  M.metal = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.46, envMapIntensity: 0.7 });
-  M.poly = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.05, roughness: 0.62, envMapIntensity: 0.6 });
-  const w = GFX.getSurface('wood');
-  M.wood = new THREE.MeshStandardMaterial({ map: w.map, roughnessMap: w.roughnessMap, roughness: 1, vertexColors: true, envMapIntensity: 0.5 });
-  const f = GFX.getSurface('fabric');
-  M.cloth = new THREE.MeshStandardMaterial({ map: f.map, normalMap: f.normalMap, roughnessMap: f.roughnessMap, roughness: 1, vertexColors: true, normalScale: new THREE.Vector2(0.6, 0.6) });
-  M.skin = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0 });
+  // acier bruni, brossé, arêtes usées
+  M.metal = surfaceMat('gunmetal', { metalness: 0.78, envMapIntensity: 0.85 }, 0.35);
+  // polymère granuleux
+  M.poly = surfaceMat('polymer', { metalness: 0.04, envMapIntensity: 0.55 }, 0.45);
+  M.wood = surfaceMat('wood', { envMapIntensity: 0.7 }, 0.4);
+  M.cloth = surfaceMat('fabric', null, 0.6);
+  M.camoT = surfaceMat('camoT', { envMapIntensity: 0.45 }, 0.7);
+  M.camoCT = surfaceMat('camoCT', { envMapIntensity: 0.45 }, 0.7);
+  M.gear = surfaceMat('nylon', { envMapIntensity: 0.5 }, 0.8);
+  M.leather = surfaceMat('leather', { envMapIntensity: 0.6 }, 0.6);
+  M.skin = surfaceMat('skin', { metalness: 0, envMapIntensity: 0.5 }, 0.3);
   return M;
 }
+const camoKey = (team) => (team === 'CT' ? 'camoCT' : 'camoT');
+const matOf = (k) => (k === 'camo' ? null : mats()[k] || mats().cloth);
 const eul = new THREE.Euler(), qq = new THREE.Quaternion(), one = new V(1, 1, 1);
 const mtx = (x, y, z, rx, ry, rz, sx, sy, sz) => new THREE.Matrix4().compose(new V(x, y, z), qq.clone().setFromEuler(eul.set(rx || 0, ry || 0, rz || 0)), new V(sx || 1, sy || 1, sz || 1));
 
@@ -305,50 +316,95 @@ const LOOK = {
 };
 const SKIN = lin(0xc4946f), GLOVE = lin(0x141517);
 function segGeos(team) {
-  const L = LOOK[team], c = (h) => lin(h), s = {};
+  const L = LOOK[team], c = (h) => lin(h), s = {}, CT = team === 'CT';
   const mk = (fn) => { const k = new Kit(); fn(k); return k; };
+  // clés : camo (tenue), gear (nylon), leather (gants, bottes), cloth (cagoule, foulard), skin, metal, poly
+  const CA = 'camo', GE = 'gear', LE = 'leather';
   s.hips = mk((k) => {
-    k.sph('cloth', 0.175, 0.12, 0.125, 0, 0, 0, c(L.pants)); k.box('cloth', 0.34, 0.045, 0.22, 0, 0.07, 0, c(L.gear));
-    k.box('cloth', 0.07, 0.11, 0.08, -0.17, -0.02, 0.0, c(L.gear)); k.box('cloth', 0.05, 0.08, 0.05, 0.05, 0.03, 0.13, c(L.gear));
+    k.sph(CA, 0.175, 0.12, 0.125, 0, 0, 0, c(L.pants), 16);
+    k.box(GE, 0.35, 0.05, 0.235, 0, 0.07, 0, c(L.gear));                                  // ceinturon
+    k.box('metal', 0.05, 0.036, 0.01, 0, 0.07, -0.121, C.steel);                           // boucle
+    k.box(GE, 0.075, 0.12, 0.085, -0.17, -0.02, 0.0, c(L.gear)); k.box('poly', 0.05, 0.1, 0.03, -0.17, -0.04, -0.05, C.black);   // étui de pistolet
+    k.box(GE, 0.05, 0.08, 0.05, 0.05, 0.03, 0.13, c(L.gear)); k.box(GE, 0.065, 0.075, 0.055, 0.13, 0.03, 0.11, c(L.gear));
+    k.box(GE, 0.06, 0.08, 0.04, 0.17, 0.02, -0.06, c(L.vest));                             // poche à grenade
   });
   s.torso = mk((k) => {
-    k.sph('cloth', 0.205, 0.28, 0.135, 0, 0.26, 0, c(L.jacket)); k.sph('cloth', 0.235, 0.115, 0.13, 0, 0.42, 0, c(L.jacket));
-    k.box('cloth', 0.33, 0.36, 0.2, 0, 0.22, 0, c(L.vest)); k.box('cloth', 0.3, 0.26, 0.04, 0, 0.26, -0.115, c(L.vest));
-    for (let i = -1; i <= 1; i++) { k.box('cloth', 0.085, 0.15, 0.05, i * 0.1, 0.13, -0.135, c(L.gear)); k.box('cloth', 0.08, 0.02, 0.054, i * 0.1, 0.205, -0.137, c(L.vest)); }
-    k.box('cloth', 0.04, 0.2, 0.22, -0.17, 0.2, 0, c(L.gear)); k.box('cloth', 0.04, 0.2, 0.22, 0.17, 0.2, 0, c(L.gear));
-    k.box('cloth', 0.27, 0.34, 0.11, 0, 0.27, 0.15, c(L.gear)); k.box('cloth', 0.05, 0.3, 0.02, -0.1, 0.42, -0.06, c(L.gear), 0.1); k.box('cloth', 0.05, 0.3, 0.02, 0.1, 0.42, -0.06, c(L.gear), 0.1);
-    k.cyl('skin', 0.05, 0.05, 0.08, 0, 0.53, 0, team === 'T' ? c(L.head) : SKIN, 'y', 10);
+    k.sph(CA, 0.205, 0.28, 0.135, 0, 0.26, 0, c(L.jacket), 18); k.sph(CA, 0.235, 0.115, 0.13, 0, 0.42, 0, c(L.jacket), 18);
+    // gilet porte-plaques, poches à chargeurs avec rabats, plaques latérales
+    k.box(GE, 0.33, 0.36, 0.2, 0, 0.22, 0, c(L.vest)); k.box(GE, 0.3, 0.26, 0.04, 0, 0.26, -0.115, c(L.vest));
+    for (let i = -1; i <= 1; i++) {
+      k.box(GE, 0.085, 0.15, 0.05, i * 0.1, 0.13, -0.135, c(L.gear)); k.box(GE, 0.08, 0.025, 0.056, i * 0.1, 0.205, -0.137, c(L.vest));
+      k.box('metal', 0.03, 0.04, 0.03, i * 0.1, 0.225, -0.135, CT ? C.dark : lin(0x3d3a33));   // haut des chargeurs
+    }
+    k.box(GE, 0.04, 0.2, 0.22, -0.17, 0.2, 0, c(L.gear)); k.box(GE, 0.04, 0.2, 0.22, 0.17, 0.2, 0, c(L.gear));
+    k.box(GE, 0.12, 0.05, 0.03, -0.075, 0.33, -0.137, c(L.gear)); k.box(GE, 0.06, 0.07, 0.03, 0.09, 0.33, -0.14, c(L.gear));   // poches administratives
+    k.box('poly', 0.07, 0.026, 0.004, 0.085, 0.375, -0.142, CT ? c(0x2f4f7f) : c(0x6b5a3a));                                    // écusson
+    // dos : poche à eau et son tuyau, bretelles
+    k.box(GE, 0.27, 0.34, 0.11, 0, 0.27, 0.15, c(L.gear)); k.box(GE, 0.22, 0.04, 0.115, 0, 0.36, 0.152, c(L.vest));
+    k.cyl('poly', 0.008, 0.008, 0.26, 0.11, 0.38, 0.0, C.rub, 'y', 6);
+    k.box(GE, 0.05, 0.3, 0.02, -0.1, 0.42, -0.06, c(L.gear), 0.1); k.box(GE, 0.05, 0.3, 0.02, 0.1, 0.42, -0.06, c(L.gear), 0.1);
+    k.cyl(CA, 0.075, 0.068, 0.05, 0, 0.5, 0, c(L.jacket), 'y', 14);                                                               // col
+    k.cyl(CT ? 'skin' : 'cloth', 0.05, 0.05, 0.08, 0, 0.53, 0, CT ? SKIN : c(L.head), 'y', 12);
+    if (CT) {   // radio et antenne sur l'épaule gauche
+      k.box('poly', 0.05, 0.09, 0.03, -0.13, 0.36, -0.125, C.black); k.cyl('poly', 0.004, 0.003, 0.24, -0.14, 0.52, -0.11, C.black, 'y', 6);
+      k.cyl('poly', 0.005, 0.005, 0.1, -0.1, 0.45, -0.1, C.black, 'y', 6);
+    } else {    // foulard noué autour du cou
+      k.sph('cloth', 0.12, 0.045, 0.115, 0, 0.5, 0, c(0x8f7d58), 14); k.box('cloth', 0.05, 0.09, 0.02, 0.03, 0.43, -0.12, c(0x8f7d58), 0.2);
+    }
   });
   s.head = mk((k) => {
-    if (team === 'T') {
-      k.sph('cloth', 0.094, 0.116, 0.104, 0, 0.1, -0.005, c(L.head), 14);
+    if (!CT) {
+      k.sph('cloth', 0.094, 0.116, 0.104, 0, 0.1, -0.005, c(L.head), 18);
       k.box('skin', 0.13, 0.03, 0.02, 0, 0.125, -0.098, SKIN); k.sph('skin', 0.012, 0.012, 0.006, -0.036, 0.125, -0.106, lin(0x1a120c)); k.sph('skin', 0.012, 0.012, 0.006, 0.036, 0.125, -0.106, lin(0x1a120c));
+      k.box('cloth', 0.135, 0.012, 0.022, 0, 0.142, -0.098, c(0x0e0e10)); k.box('cloth', 0.135, 0.01, 0.022, 0, 0.108, -0.098, c(0x0e0e10));   // bord de la fente
       k.sph('cloth', 0.12, 0.05, 0.12, 0, 0.0, 0.0, c(L.jacket));
+      k.box('poly', 0.15, 0.04, 0.03, 0, 0.17, -0.09, lin(0x1c1c1c)); k.box('poly', 0.06, 0.03, 0.006, -0.035, 0.17, -0.106, lin(0x3b2f1c)); k.box('poly', 0.06, 0.03, 0.006, 0.035, 0.17, -0.106, lin(0x3b2f1c));   // lunettes relevées
     } else {
-      k.sph('skin', 0.09, 0.112, 0.1, 0, 0.1, -0.004, SKIN, 14); k.sph('cloth', 0.092, 0.06, 0.1, 0, 0.044, -0.006, c(L.head)); k.sph('skin', 0.016, 0.022, 0.018, 0, 0.09, -0.102, SKIN);
-      k.box('metal', 0.15, 0.05, 0.03, 0, 0.13, -0.094, lin(0x0a0d12)); k.box('cloth', 0.19, 0.03, 0.2, 0, 0.135, 0.012, c(L.gear));
+      k.sph('skin', 0.09, 0.112, 0.1, 0, 0.1, -0.004, SKIN, 18); k.sph('cloth', 0.092, 0.06, 0.1, 0, 0.044, -0.006, c(L.head), 16); k.sph('skin', 0.016, 0.022, 0.018, 0, 0.09, -0.102, SKIN);
+      k.sph('skin', 0.014, 0.024, 0.02, -0.09, 0.1, 0.005, SKIN); k.sph('skin', 0.014, 0.024, 0.02, 0.09, 0.1, 0.005, SKIN);   // oreilles
+      k.box('metal', 0.15, 0.05, 0.03, 0, 0.13, -0.094, lin(0x0a0d12)); k.box('poly', 0.16, 0.012, 0.01, 0, 0.155, -0.1, C.black);   // masque balistique
+      k.box(GE, 0.19, 0.03, 0.2, 0, 0.135, 0.012, c(L.gear));
+      k.cyl('poly', 0.038, 0.038, 0.034, -0.105, 0.1, 0.0, C.black, 'x', 14); k.cyl('poly', 0.038, 0.038, 0.034, 0.105, 0.1, 0.0, C.black, 'x', 14);   // casque antibruit
+      k.cyl('poly', 0.005, 0.005, 0.06, -0.12, 0.07, -0.05, C.black, 'z', 6);                                                                               // micro
     }
   });
   s.helmet = mk((k) => {
-    const g = new THREE.SphereGeometry(1, 16, 9, 0, 6.3, 0, 1.75); k.b.geo('cloth', g, mtx(0, 0.125, 0.0, 0, 0, 0, 0.116, 0.112, 0.128), c(L.gear), 2); g.dispose();
-    k.box('metal', 0.03, 0.02, 0.018, 0, 0.21, -0.1, C.black);
+    const g = new THREE.SphereGeometry(1, 20, 10, 0, 6.3, 0, 1.75); k.b.geo(CA, g, mtx(0, 0.125, 0.0, 0, 0, 0, 0.116, 0.112, 0.128), c(L.gear), 2); g.dispose();
+    k.box('metal', 0.03, 0.02, 0.018, 0, 0.21, -0.1, C.black);                                       // support de vision nocturne
+    k.box('poly', 0.012, 0.025, 0.09, -0.118, 0.14, 0.0, C.black); k.box('poly', 0.012, 0.025, 0.09, 0.118, 0.14, 0.0, C.black);   // rails
+    k.box(GE, 0.06, 0.05, 0.03, 0, 0.17, 0.12, c(L.vest));                                           // contrepoids
+    k.box(GE, 0.012, 0.09, 0.012, -0.09, 0.06, -0.02, c(L.gear)); k.box(GE, 0.012, 0.09, 0.012, 0.09, 0.06, -0.02, c(L.gear));   // jugulaire
   });
   const up = (col, band) => mk((k) => {
-    k.cyl('cloth', 0.062, 0.05, 0.3, 0, -0.14, 0, col, 'y', 10); k.sph('cloth', 0.068, 0.068, 0.068, 0, -0.01, 0, col);
-    if (band) k.cyl('cloth', 0.058, 0.056, 0.05, 0, -0.1, 0, c(L.band), 'y', 10);
+    k.cyl(CA, 0.062, 0.05, 0.3, 0, -0.14, 0, col, 'y', 14); k.sph(CA, 0.068, 0.068, 0.068, 0, -0.01, 0, col, 14);
+    if (band) k.cyl('cloth', 0.058, 0.056, 0.05, 0, -0.1, 0, c(L.band), 'y', 14);
+    k.box('poly', 0.004, 0.045, 0.05, 0.063, -0.06, 0, CT ? c(0x2f4f7f) : c(0x6b5a3a));            // écusson d'épaule
   });
   s.armU = up(c(L.jacket), true);
-  s.armL = mk((k) => { k.cyl('cloth', 0.05, 0.038, 0.25, 0, -0.125, 0, c(L.jacket), 'y', 10); k.sph('cloth', 0.05, 0.05, 0.05, 0, 0, 0, c(L.jacket)); k.sph('skin', 0.042, 0.052, 0.05, 0, -0.285, -0.01, GLOVE); });
-  s.thigh = mk((k) => { k.cyl('cloth', 0.1, 0.072, 0.43, 0, -0.21, 0, c(L.pants), 'y', 10); k.sph('cloth', 0.1, 0.1, 0.1, 0, 0, 0, c(L.pants)); k.box('cloth', 0.05, 0.14, 0.09, -0.078, -0.2, 0, c(L.gear)); });
+  s.armL = mk((k) => {
+    k.cyl(CA, 0.05, 0.038, 0.25, 0, -0.125, 0, c(L.jacket), 'y', 14);
+    k.sph(GE, 0.058, 0.052, 0.058, 0, 0, 0, c(L.gear), 14);                                         // coudière
+    k.cyl(GE, 0.042, 0.042, 0.03, 0, -0.235, 0, c(L.gear), 'y', 12);                                 // poignet du gant
+    k.sph(LE, 0.042, 0.052, 0.05, 0, -0.285, -0.01, GLOVE, 14); k.box('poly', 0.05, 0.016, 0.03, 0, -0.3, -0.045, lin(0x1f2124));   // gant, protection des jointures
+  });
+  s.thigh = mk((k) => {
+    k.cyl(CA, 0.1, 0.072, 0.43, 0, -0.21, 0, c(L.pants), 'y', 14); k.sph(CA, 0.1, 0.1, 0.1, 0, 0, 0, c(L.pants), 14);
+    k.box(GE, 0.05, 0.14, 0.09, -0.078, -0.2, 0, c(L.gear)); k.box(GE, 0.055, 0.03, 0.095, -0.08, -0.13, 0, c(L.vest));   // poche de cuisse
+    k.box(GE, 0.03, 0.02, 0.15, -0.1, -0.3, 0, c(L.gear));
+  });
   s.shin = mk((k) => {
-    k.cyl('cloth', 0.074, 0.056, 0.36, 0, -0.18, 0, c(L.pants), 'y', 10); k.sph('cloth', 0.074, 0.074, 0.074, 0, 0, 0, c(L.pants));
-    if (team === 'CT') k.box('cloth', 0.09, 0.1, 0.03, 0, 0.0, -0.06, c(L.gear));
-    k.cyl('cloth', 0.058, 0.05, 0.16, 0, -0.35, 0, c(L.boot), 'y', 10); k.box('cloth', 0.09, 0.05, 0.26, 0, -0.415, -0.05, c(L.boot)); k.box('cloth', 0.094, 0.018, 0.27, 0, -0.438, -0.05, C.rub);
+    k.cyl(CA, 0.074, 0.056, 0.36, 0, -0.18, 0, c(L.pants), 'y', 14); k.sph(CA, 0.074, 0.074, 0.074, 0, 0, 0, c(L.pants), 14);
+    k.box(GE, 0.095, 0.11, 0.035, 0, -0.01, -0.065, c(L.gear)); k.box('poly', 0.07, 0.07, 0.01, 0, -0.01, -0.085, C.black);   // genouillère
+    k.cyl(LE, 0.06, 0.052, 0.16, 0, -0.35, 0, c(L.boot), 'y', 14); k.box(LE, 0.09, 0.055, 0.26, 0, -0.415, -0.05, c(L.boot));
+    k.box('poly', 0.096, 0.022, 0.275, 0, -0.44, -0.05, C.rub); k.box('poly', 0.03, 0.006, 0.1, 0, -0.385, -0.13, lin(0x2a2622), 0.5);   // semelle, lacets
   });
   const out = {};
   Object.keys(s).forEach((n) => {
-    const shared = s[n].b.b, keys = Object.keys(shared), gs = {};
-    keys.forEach((k) => { const bt = new Batch(); bt.b = { [k]: shared[k] }; gs[k] = bt.mesh(k, k === 'skin' ? mats().skin : k === 'metal' ? mats().metal : mats().cloth, true, true); });
+    const shared = s[n].b.b, gs = {};
+    Object.keys(shared).forEach((k) => {
+      const bt = new Batch(); bt.b = { [k]: shared[k] };
+      gs[k] = bt.mesh(k, k === 'camo' ? mats()[camoKey(team)] : matOf(k), true, true);
+    });
     out[n] = gs;
   });
   return out;
@@ -529,14 +585,26 @@ class Rig {
 
 /* ---------- bras en vue subjective ---------- */
 function vmArm(team, left) {
-  const L = LOOK[team], k = new Kit(), g = new THREE.Group(), sleeve = lin(L.jacket);
-  k.cyl('poly', 0.034, 0.044, 0.44, 0, 0, 0.24, sleeve, 'z', 14); k.cyl('poly', 0.045, 0.05, 0.3, 0, 0, 0.55, sleeve, 'z', 14);
-  k.cyl('poly', 0.036, 0.036, 0.02, 0, 0, 0.03, lin(L.gear), 'z', 12); k.cyl('poly', 0.046, 0.046, 0.03, 0, 0, 0.3, lin(L.band), 'z', 12);
-  k.box('skin', 0.065, 0.078, 0.082, 0, 0, -0.02, GLOVE);
-  const s = left ? 1 : -1;
-  for (let i = 0; i < 4; i++) { k.box('skin', 0.016, 0.018, 0.045, s * 0.018, 0.032 - i * 0.021, -0.078, GLOVE, 0.1, 0, 0); k.box('skin', 0.014, 0.016, 0.03, s * 0.012, 0.03 - i * 0.021, -0.102, lin(0x1c1d20), 0, s * 0.5, 0); }
-  k.box('skin', 0.018, 0.022, 0.05, -s * 0.03, -0.002, -0.058, lin(0x1c1d20), 0, -s * 0.4, 0);
-  ['poly', 'skin'].forEach((n) => { const m = k.b.mesh(n, n === 'skin' ? mats().skin : mats().poly, false, false); if (m) g.add(m); });
+  const L = LOOK[team], k = new Kit(), g = new THREE.Group(), sleeve = lin(L.jacket), CT = team === 'CT', s = left ? 1 : -1;
+  // manche en camouflage avec plis, poignet élastique, brassard
+  k.cyl('camo', 0.034, 0.044, 0.44, 0, 0, 0.24, sleeve, 'z', 18); k.cyl('camo', 0.045, 0.05, 0.3, 0, 0, 0.55, sleeve, 'z', 18);
+  for (let i = 0; i < 3; i++) k.cyl('camo', 0.0405 + i * 0.002, 0.0415 + i * 0.002, 0.018, 0, 0, 0.12 + i * 0.07, lin(L.jacket).multiplyScalar(0.92), 'z', 18);
+  k.cyl('gear', 0.037, 0.037, 0.026, 0, 0, 0.032, lin(L.gear), 'z', 16); k.cyl('cloth', 0.047, 0.047, 0.032, 0, 0, 0.3, lin(L.band), 'z', 16);
+  k.box('poly', 0.004, 0.03, 0.045, -s * 0.046, 0.0, 0.42, CT ? lin(0x2f4f7f) : lin(0x6b5a3a));   // écusson
+  // gant en cuir : paume, dos rembourré, sangle de serrage, doigts avec bouts renforcés
+  k.box('leather', 0.065, 0.078, 0.082, 0, 0, -0.02, GLOVE);
+  k.box('poly', 0.012, 0.06, 0.055, -s * 0.034, 0, -0.025, lin(0x23262a));
+  k.box('gear', 0.068, 0.02, 0.03, 0, 0.0, 0.012, lin(0x1b1d20));
+  for (let i = 0; i < 4; i++) {
+    k.box('leather', 0.016, 0.018, 0.045, s * 0.018, 0.032 - i * 0.021, -0.078, GLOVE, 0.1, 0, 0);
+    k.box('leather', 0.014, 0.016, 0.03, s * 0.012, 0.03 - i * 0.021, -0.102, lin(0x1c1d20), 0, s * 0.5, 0);
+    k.box('poly', 0.006, 0.014, 0.016, -s * 0.0, 0.032 - i * 0.021, -0.062, lin(0x26292d));      // jointures
+  }
+  k.box('leather', 0.018, 0.022, 0.05, -s * 0.03, -0.002, -0.058, lin(0x1c1d20), 0, -s * 0.4, 0);
+  if (left) {   // montre au poignet gauche
+    k.cyl('poly', 0.019, 0.019, 0.01, -s * 0.04, 0, 0.065, C.black, 'x', 18); k.cyl('metal', 0.015, 0.015, 0.003, -s * 0.046, 0, 0.065, lin(0x2a4a3a), 'x', 18);
+  }
+  ['camo', 'gear', 'cloth', 'leather', 'poly', 'metal'].forEach((n) => { const m = k.b.mesh(n, n === 'camo' ? mats()[camoKey(team)] : matOf(n), false, false); if (m) g.add(m); });
   return g;
 }
 

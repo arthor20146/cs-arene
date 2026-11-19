@@ -19,6 +19,50 @@ Variables d'environnement : `PORT`, `MAX_ROUNDS` (30 par défaut, premier à 16)
 
 Installe [Node.js](https://nodejs.org) 18 ou plus, puis double-clique sur `build-exe.bat` (ou `npm install` puis `npm run dist`). Le fichier `dist/CS-Arena.exe` est un exécutable unique, sans installation : il lance le serveur du jeu et ouvre la fenêtre en plein écran (F11 pour basculer). Les amis du même réseau rejoignent via `http://TON-IP:3000` dans un navigateur. Pour jouer sur un serveur déjà en ligne : `CS-Arena.exe --url=https://ton-serveur.fly.dev`. Pour tester sans fabriquer l'exe : `npm run app`.
 
+## Stand de tir
+
+Menu **STAND DE TIR** (ou bouton du même nom dans le lobby). Partie privée sur une carte dédiée : un couloir de tir de 44 m avec un comptoir, des lignes au sol tous les 10 m et quelques caisses. Touche **P** : choix de la difficulté et de la durée, départ, résultats et classement.
+
+| Difficulté | Temps à l'écran | Distance | Cibles à la fois | En mouvement |
+|---|---|---|---|---|
+| Facile | 3,2 s | 8 à 22 m | 1 | aucune |
+| Moyen | 2 s | 10 à 32 m | 2 | 1 sur 4 |
+| Difficile | 1,3 s | 14 à 46 m | 3 | 1 sur 2 |
+| Expert | 0,8 s | 12 à 60 m | 3 | 3 sur 4, plus petites |
+
+- Deux sortes de cibles qui se lèvent puis se baissent : ronde (10 anneaux, la mouche au centre) et silhouette (tête, centre, buste). Une balle qui passe à côté de la silhouette continue sa route.
+- Durée 30, 60 ou 90 s, ou **Libre**. Score : endroit touché × rapidité × distance × série (jusqu'à ×2). Une cible ratée casse la série.
+- Résultats : points, touchées, ratées, précision, temps de réaction moyen, meilleure série. Record sur l'appareil, et avec un compte : record enregistré et **classement** (top 10 par difficulté et durée).
+- Boutique gratuite avec toutes les armes des deux camps, réserve de munitions illimitée, pas de combat entre joueurs.
+
+## Zone de test
+
+Menu **ZONE DE TEST** (ou bouton du lobby). Partie privée qui ne s'arrête jamais (réapparition après 3 s), sur la carte **Labo** (ou n'importe quelle carte, au menu ou dans le panneau). Labo : ligne de pénétration (bois, béton, tôle, muret, fût), hauteurs de saut de 0,5 à 2,6 m, terrasse avec escalier, deux sites de bombe. Touche **P** : outils.
+
+- **Joueur** : invincible, munitions infinies (pas de recharge), grenades illimitées, vol libre (Espace monte, C descend), soigner + gilet et casque, réapparaître, changer de camp tout de suite.
+- **Mannequins** (12 au plus) : T ou CT, avec ou sans gilet et casque, fixes ou en mouvement. Les dégâts sont calculés comme sur le serveur (zone, distance, obstacles traversés, gilet) et s'affichent au point d'impact. Ils encaissent aussi la grenade à fragmentation, tombent, puis se relèvent.
+- **Infos de test** : position, vitesse, au sol / en l'air, dispersion de l'arme, détail du dernier tir.
+- **Téléportation** (départs, sites, milieu), **bombe** (on la reçoit, on la pose, on change de camp pour la désamorcer ; la partie continue), **désordres** à la demande (murs, armes bloquées, commandes inversées, tout remettre en place), nettoyage des grenades et des impacts.
+
+Côté code : le serveur gère les modes `range` et `sandbox` (`practice`, `tickPractice`, `sandbox()` pour les commandes `sb`, options `opt`). Cibles et mannequins n'existent que chez le joueur (`game.js`, section « Entraînement »).
+
+## Comptes joueurs
+
+Bouton **COMPTE** (menu et lobby). Pseudo de 3 à 16 caractères, mot de passe de 6 caractères ou plus, chiffré avec scrypt. Le jeton de session est gardé dans le navigateur (6 appareils au plus). Sans compte, on joue en invité ; un invité ne peut pas prendre le pseudo d'un compte (il reçoit une `*`).
+
+- Profil : niveau et XP, éliminations, morts, K/D, tirs à la tête, manches et matchs gagnés, MVP, ACE (parties en ligne uniquement), records du stand de tir. Changement de mot de passe (déconnecte les autres appareils).
+- Dans le tableau des scores, les joueurs avec un compte ont ✔ et leur niveau.
+- API (POST, JSON) : `/api/register`, `/api/login`, `/api/me`, `/api/logout`, `/api/password`, `/api/range`, `/api/top`. Trop d'essais depuis la même adresse : refus pendant une minute.
+- Les comptes sont dans `DATA_DIR/accounts.json` (`./data` par défaut, `/data` dans Docker, le dossier de l'application pour le `.exe`). **Sur Fly.io**, sans volume, le fichier est effacé à chaque redéploiement : crée un volume (`fly volumes create cs_data --size 1`) et ajoute dans `fly.toml` :
+
+```toml
+[mounts]
+  source = "cs_data"
+  destination = "/data"
+```
+
+Sur Render, il faut de même un disque persistant monté sur `/data`.
+
 ## Rendu réaliste
 
 Tout est généré au chargement, sans fichier image ni son :
@@ -26,6 +70,8 @@ Tout est généré au chargement, sans fichier image ni son :
 - matériaux PBR (couleur, relief, rugosité) calculés dans le navigateur, ciel avec nuages, éclairage par le ciel, ombres dynamiques, brouillard de distance ;
 - décor : fenêtres, portes, câbles, conteneurs, grues, ville à l'horizon, flaques sur les Docks ;
 - soldats articulés (marche, accroupi, rechargement, chute) et 21 modèles d'armes ;
+- tenues : camouflage désert (T) et numérique (CT), gilet et poches en nylon cousu, gants et bottes en cuir grainé, genouillères, coudières, poche à eau, radio et casque antibruit (CT), foulard et lunettes (T), montre au poignet en vue subjective ;
+- armes : acier brossé avec rayures et arêtes usées, polymère granuleux, bois verni ; décor : fissures et coulures sur les murs, granulats et traces d'eau sur le béton, peinture écaillée des conteneurs, noeuds du bois des caisses, gravillons de l'asphalte ;
 - particules, douilles, impacts selon la matière, sang, traçantes, flamme de bouche ;
 - son : écho, retard selon la distance, murs qui étouffent, balles qui sifflent, acouphène après l'explosion ;
 - grenades : nuage de fumée en volume, flammes et sol brûlé, explosion, éclair aveuglant avec image rémanente.
@@ -154,6 +200,7 @@ Côté code : le serveur simule tout (`throwGren`, `stepGren` pour la trajectoir
 | B | Boutique (1 à 9 pour acheter) |
 | E | Prendre une arme au sol · maintenu : poser / désamorcer la bombe |
 | M | Afficher ou fermer la carte complète |
+| P | Stand de tir : difficulté et départ · zone de test : outils |
 | Tab / Entrée | Scores / chat |
 
 **Ctrl et le navigateur :** le jeu passe en plein écran au lancement. Sur Chrome, Edge et Opera (en https ou localhost), cela protège Ctrl+W pendant la partie. Sur Firefox et Safari, Ctrl+W ne peut pas être bloqué : le navigateur demande confirmation, et il vaut mieux s'accroupir avec C. Echap quitte le plein écran et affiche la pause ; cliquer sur Reprendre y retourne.
@@ -166,6 +213,7 @@ shared.js      armes, cartes, réglages (utilisé par le serveur ET le client)
 game.js        mouvement, tir, réseau, HUD, radar
 main.js        application Windows (Electron)
 settings.js    menu Paramètres : réglages, touches personnalisables
+account.js     comptes joueurs : connexion, création, profil, records
 gfx.js         rendu : textures, ciel, lumière, décor, post-traitement, particules
 models.js      armes, soldats articulés, bras, bombe
 audio.js       sons synthétisés (aucun fichier audio)

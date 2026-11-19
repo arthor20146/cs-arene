@@ -202,6 +202,16 @@
   // Conteneur à l'échelle réelle : L = 6 ou 12 m, sens 'x' ou 'z', n = nombre d'étages (2,6 m chacun).
   const K = (x, z, L, sens, n, c) => (sens === 'x' ? B(x, z, L, 2.5, n * 2.6, 'cont', CONT[c]) : B(x, z, 2.5, L, n * 2.6, 'cont', CONT[c]));
 
+  // Stand de tir : tout le monde part du pas de tir, face au nord (les cibles sont devant)
+  function rangeSpawns() {
+    const s = { T: [], CT: [] };
+    for (let i = 0; i < 10; i++) {
+      const p = { x: -13.5 + (i % 5) * 6.75, y: 0, z: 33.2 + (i / 5 | 0) * 2.4, yaw: 0 };
+      s.T.push(p); s.CT.push(Object.assign({}, p));
+    }
+    return s;
+  }
+
   const MAPS = {
     // ---------- Carte 1 : Dust (désert) ----------
     dust: {
@@ -373,6 +383,51 @@
       marks: [[-20, 33, -1, 0, 'A'], [-33, 2, 0, -1, 'A'], [-9, 24, 0, -1, 'A'], [-7, 13, 1, 0, 'B'], [24, 30, 0, -1, 'B'], [8, 2.5, 1, 0, 'B'], [-14, -33, -1, 0, 'A'], [14, -26, 1, 0, 'B']],
       stripes: [[-26, 28, -26, -9], [-26, -9, -40, -9], [21, 8, 21, 27], [21, 27, 40, 27], [-2, 4, 19, 4]],
       rails: [-36, -34.5],
+      spawns: makeSpawns()
+    },
+
+    // ---------- Entraînement : stand de tir (cibles gérées par le client) ----------
+    range: {
+      id: 'range', name: 'Stand de tir', style: 'docks', practice: 1,
+      theme: { sky: 0xaebccb, ground: '#6e7277', wall: '#6f6a64', crate: '#7a5a34' },
+      boxes: ENCLOSURE.concat([
+        // couloir de tir de 44 m de large, butte au fond
+        B(-22.5, 0, 1, 80, 6.5), B(22.5, 0, 1, 80, 6.5), B(0, -37.5, 44, 2, 9),
+        // pas de tir : comptoir (on tire par-dessus), passages sur les côtés, séparations des postes
+        B(0, 31.2, 34, 0.5, 1.1, 'w'),
+        B(-10.1, 32.6, 0.25, 2, 1.6, 'w'), B(-3.4, 32.6, 0.25, 2, 1.6, 'w'), B(3.4, 32.6, 0.25, 2, 1.6, 'w'), B(10.1, 32.6, 0.25, 2, 1.6, 'w'),
+        // couvertures dans la zone des cibles
+        B(-12, 14, 3, 1, 1.4), B(9, 6, 3, 1, 1.4), B(-3, -6, 4, 1, 2.4), B(14, -16, 3, 1, 1.4), B(-15, -24, 3, 1, 1.4), B(5, -27, 4, 1, 2.4),
+        // fond du stand : établis
+        B(-18, 37.5, 4, 2, 1.1), B(18, 37.5, 4, 2, 1.1)
+      ]),
+      sites: {},
+      // lignes au sol tous les 10 m depuis le pas de tir
+      stripes: [[-21.5, 30.5, 21.5, 30.5], [-21.5, 20.5, 21.5, 20.5], [-21.5, 10.5, 21.5, 10.5], [-21.5, 0.5, 21.5, 0.5], [-21.5, -9.5, 21.5, -9.5], [-21.5, -19.5, 21.5, -19.5], [-21.5, -29.5, 21.5, -29.5]],
+      spawns: rangeSpawns()
+    },
+
+    // ---------- Entraînement : zone de test (pénétration, sauts, escalier, deux sites) ----------
+    labo: {
+      id: 'labo', name: 'Labo', style: 'docks', practice: 1,
+      theme: { sky: 0xaebccb, ground: '#6e7277', wall: '#6f6a64', crate: '#7a5a34' },
+      boxes: ENCLOSURE.concat([
+        // ligne de pénétration (z = 6) : bois, béton, tôle de conteneur, muret, fût
+        B(-30, 6, 5, 0.5, 2.4), B(-22, 6, 5, 0.8, 3.2), K(-13, 6, 6, 'x', 1, 'u'), B(-5, 6, 5, 0.6, 1.1, 'w'), B(1, 6, 0.8, 0.8, 1.1, 'barrel'),
+        // hauteurs de saut : 0,5 m (on monte en marchant), 0,9 et 1,4 m (saut), 2 et 2,6 m (impossible)
+        B(8, 14, 2, 2, 0.5), B(11, 14, 2, 2, 0.9), B(14, 14, 2, 2, 1.4), B(17, 14, 2, 2, 2.0), B(20, 14, 2, 2, 2.6),
+        // terrasse de 2,5 m et son escalier
+        B(30, 16.5, 6, 5, 2.5, 'w')
+      ], stairs(30, 22, 4, 0, -1, 5), [
+        // site A
+        B(-26, -14, 3, 1, 1.4), B(-31, -27, 2, 2, 2.4), K(-21, -29, 6, 'x', 1, 'r'),
+        // site B
+        B(26, -14, 3, 1, 1.4), B(31, -27, 2, 2, 2.4), K(21, -29, 6, 'x', 1, 'g'),
+        // milieu
+        B(0, -18, 4, 4, 2.4), B(-9, -8, 1.5, 8, 6), B(9, -8, 1.5, 8, 6)
+      ]),
+      sites: { A: { x: -26, z: -22, r: 6.5 }, B: { x: 26, z: -22, r: 6.5 } },
+      marks: [[-14, -32, -1, 0, 'A'], [14, -32, 1, 0, 'B']],
       spawns: makeSpawns()
     }
   };

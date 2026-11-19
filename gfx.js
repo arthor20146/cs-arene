@@ -81,13 +81,17 @@ const SURF = {
     const chip = sstep(0.715, 0.725, fbm(u, v, 5, 6, 9));
     mix3(o, hex3(0xcbb691), hex3(0xa8926c), sstep(0.3, 0.7, st));
     const k = 0.92 + 0.16 * f; o.r *= k; o.g *= k; o.b *= k;
+    // fissures fines et coulures de saleté
+    const crack = sstep(0.006, 0.0015, Math.abs(fbm(u, v, 4, 5, 15) - 0.5)) * sstep(0.45, 0.6, fbm(u, v, 2, 3, 16));
+    const drip = sstep(0.55, 0.8, fbm(u, v * 0.15 + 0.4, 18, 3, 17)) * 0.12;
+    o.r *= 1 - crack * 0.45 - drip; o.g *= 1 - crack * 0.47 - drip; o.b *= 1 - crack * 0.5 - drip;
     if (chip > 0) {
       const row = Math.floor(v * 16), bx = (u * 8 + (row % 2) * 0.5) % 1, by = (v * 16) % 1;
       const mortar = bx < 0.05 || by < 0.1 ? 1 : 0;
       const b = mortar ? [0.55, 0.5, 0.42] : [0.6, 0.45, 0.34];
       o.r = mix(o.r, b[0] * k, chip); o.g = mix(o.g, b[1] * k, chip); o.b = mix(o.b, b[2] * k, chip);
     }
-    o.h = 0.55 + 0.28 * n + 0.1 * f - chip * 0.5; o.ro = 0.9; o.me = 0;
+    o.h = 0.55 + 0.28 * n + 0.1 * f - chip * 0.5 - crack * 0.3; o.ro = 0.9; o.me = 0;
   },
   stone(u, v, o) {
     const rows = 4, cols = 2, ry = v * rows, row = Math.floor(ry), fy = ry - row;
@@ -109,8 +113,13 @@ const SURF = {
     const c = 0.46 + 0.17 * n + 0.1 * st - 0.09 * streak * (1 - v * 0.3);
     o.r = c * 1.0; o.g = c * 0.985; o.b = c * 0.95;
     const k = 0.93 + 0.14 * f; o.r *= k; o.g *= k; o.b *= k;
+    // granulats, bulles d'air, traces d'eau verticales, mousse discrète en bas
+    const ag = vnoise(u * 180, v * 180, 180, 23), pit = vnoise(u * 96, v * 96, 96, 24) < 0.06 ? 1 : 0;
+    const wet = sstep(0.5, 0.78, fbm(u, v * 0.12 + 0.2, 14, 3, 25)) * 0.16;
+    const ak = (ag > 0.82 ? 1.08 : ag < 0.14 ? 0.9 : 1) * (1 - wet) * (pit ? 0.6 : 1);
+    o.r *= ak; o.g *= ak; o.b *= ak * 1.01;
     if (seam || tie) { o.r *= 0.55; o.g *= 0.55; o.b *= 0.55; }
-    o.h = 0.6 + 0.16 * n + 0.14 * f - (seam ? 0.5 : 0) - (tie ? 0.7 : 0); o.ro = 0.86; o.me = 0;
+    o.h = 0.6 + 0.16 * n + 0.14 * f + 0.05 * ag - pit * 0.35 - (seam ? 0.5 : 0) - (tie ? 0.7 : 0); o.ro = 0.86 - wet * 0.5; o.me = 0;
   },
   crate(u, v, o) {
     const fr = 0.11, inF = u < fr || u > 1 - fr || v < fr || v > 1 - fr;
@@ -121,6 +130,10 @@ const SURF = {
     const fine = a === 0 || a === 1 ? vnoise(u * 180, v * 12, 16384, 2) : vnoise(v * 180, u * 12, 16384, 2);
     const c = 0.8 + 0.3 * plK;
     mix3(o, [0.56 * c, 0.41 * c, 0.24 * c], [0.36 * c, 0.24 * c, 0.13 * c], sstep(0.35, 0.65, g * 0.75 + fine * 0.25));
+    // noeuds du bois et grisaillement par endroits
+    const knot = sstep(0.8, 0.86, fbm(u, v, 9, 3, 33)), grey = sstep(0.55, 0.75, fbm(u, v, 3, 4, 34)) * 0.35;
+    o.r = mix(o.r, 0.2 * c, knot * 0.7); o.g = mix(o.g, 0.12 * c, knot * 0.7); o.b = mix(o.b, 0.06 * c, knot * 0.7);
+    const gl = (o.r + o.g + o.b) / 3; o.r = mix(o.r, gl * 1.05, grey); o.g = mix(o.g, gl * 1.02, grey); o.b = mix(o.b, gl, grey);
     const gapP = inF ? 0 : (Math.abs((u * 5) % 1 - 0.5) > 0.47 && !inD ? 1 : 0);
     let edge = 0;
     if (!inF) edge = Math.max(sstep(fr + 0.012, fr, Math.min(u, 1 - u, v, 1 - v)), inD ? sstep(0.06, 0.07, d1) : 0);
@@ -137,29 +150,103 @@ const SURF = {
     const c = 0.78 + 0.14 * f - 0.3 * streak - 0.22 * sstep(0.45, 0.8, dirt);
     o.r = c; o.g = c; o.b = c;
     if (rust > 0) { const k = 0.7 + 0.5 * f; o.r = mix(o.r, 0.46 * k, rust); o.g = mix(o.g, 0.26 * k, rust); o.b = mix(o.b, 0.15 * k, rust); }
-    o.h = p * 0.9 + 0.05 * n - rust * 0.07; o.ro = mix(0.48, 0.92, rust); o.me = mix(0.75, 0.1, rust);
+    // peinture écaillée sur les arêtes des nervures : métal nu, brillant
+    const chip = sstep(0.7, 0.75, fbm(u, v, 12, 3, 45) + (Math.abs(r - 0.16) < 0.05 || Math.abs(r - 0.66) < 0.05 ? 0.18 : 0)) * (1 - rust);
+    if (chip > 0) { o.r = mix(o.r, 1.25, chip * 0.7); o.g = mix(o.g, 1.25, chip * 0.7); o.b = mix(o.b, 1.27, chip * 0.7); }
+    // bosses
+    const dent = sstep(0.62, 0.7, fbm(u, v, 3, 3, 46));
+    o.h = p * 0.9 + 0.05 * n - rust * 0.07 - chip * 0.04 - dent * 0.08; o.ro = mix(mix(0.48, 0.92, rust), 0.3, chip); o.me = mix(mix(0.75, 0.1, rust), 0.95, chip);
   },
   asphalt(u, v, o) {
     const n = fbm(u, v, 4, 5, 51), a = vnoise(u * 220, v * 220, 16384, 3), b = vnoise(u * 90, v * 90, 8192, 5);
     const crack = sstep(0.008, 0.003, Math.abs(fbm(u, v, 3, 5, 52) - 0.5));
     const c = 0.19 + 0.08 * n + 0.09 * (a - 0.5) + 0.05 * (b - 0.5);
     o.r = c * 1.02; o.g = c; o.b = c * 0.98;
+    // gravillons clairs et rapiéçages plus sombres
+    const grav = a > 0.86 ? 1.5 : 1, patch = sstep(0.62, 0.66, fbm(u, v, 2, 3, 53)) * 0.22;
+    o.r *= grav * (1 - patch); o.g *= grav * (1 - patch); o.b *= grav * (1 - patch);
     if (crack) { o.r *= 1 - crack * 0.7; o.g *= 1 - crack * 0.7; o.b *= 1 - crack * 0.7; }
-    o.h = 0.6 + 0.3 * a + 0.14 * b - crack * 0.5; o.ro = 0.72 + 0.16 * n; o.me = 0;
+    o.h = 0.6 + 0.3 * a + 0.14 * b - crack * 0.5 - patch * 0.3; o.ro = 0.72 + 0.16 * n - patch * 0.2; o.me = 0;
   },
   fabric(u, v, o) {
     const w = Math.sin(u * 188.5) * Math.sin(v * 188.5), n = fbm(u, v, 6, 4, 61);
     const c = 0.82 + 0.1 * w + 0.16 * (n - 0.5); o.r = o.g = o.b = c;
     o.h = 0.5 + 0.3 * w + 0.3 * n; o.ro = 0.92; o.me = 0;
   },
+  // bois verni des crosses : fil du bois, pores, cernes plus sombres
   wood(u, v, o) {
     const g = fbm(u * 0.25, v, 8, 4, 71), r = Math.sin((v * 30 + g * 14) * 3.14) * 0.5 + 0.5;
-    mix3(o, [0.4, 0.22, 0.1], [0.2, 0.1, 0.05], r * 0.7 + g * 0.3);
-    o.h = r * 0.2 + g * 0.2; o.ro = 0.48; o.me = 0;
+    const pore = vnoise(u * 16, v * 256, 16, 72), fig = fbm(u, v, 3, 3, 73);
+    mix3(o, [0.46, 0.235, 0.105], [0.19, 0.085, 0.04], clamp(r * 0.62 + g * 0.28 + (fig - 0.5) * 0.3, 0, 1));
+    const k = 0.92 + 0.1 * pore; o.r *= k; o.g *= k; o.b *= k;
+    o.h = r * 0.2 + g * 0.15 - (pore < 0.18 ? 0.15 : 0); o.ro = 0.34 + 0.22 * (1 - pore) * r; o.me = 0;
+  },
+  /* ---------- tenues et équipement des soldats (en niveaux de gris : la couleur vient du modèle) ---------- */
+  // camouflage désert (T) : grandes taches à bords doux sur toile
+  camoT(u, v, o) {
+    const a = fbm(u, v, 3, 5, 81), b = fbm(u, v, 5, 4, 82), f = fbm(u, v, 48, 2, 83);
+    const w = Math.sin(u * 6.2832 * 110) * Math.sin(v * 6.2832 * 110);
+    let l = mix(1.1, 0.8, sstep(0.5, 0.55, a)); l = mix(l, 0.6, sstep(0.57, 0.61, b));
+    const k = l * (0.93 + 0.05 * w + 0.08 * (f - 0.5));
+    o.r = k * (l < 0.7 ? 0.96 : 1.02); o.g = k; o.b = k * (l < 0.7 ? 0.9 : 0.97);
+    o.h = 0.5 + 0.22 * w + 0.12 * f; o.ro = 0.93; o.me = 0;
+  },
+  // camouflage numérique (CT) : pixels en 4 tons
+  camoCT(u, v, o) {
+    const cu = (Math.floor(u * 40) + 0.5) / 40, cv = (Math.floor(v * 40) + 0.5) / 40;
+    const n = fbm(cu, cv, 4, 4, 91), m = fbm(cu, cv, 8, 2, 92), f = fbm(u, v, 48, 2, 93);
+    const q = n + (m - 0.5) * 0.18, l = q < 0.43 ? 0.66 : q < 0.5 ? 0.84 : q < 0.58 ? 1.0 : 1.16;
+    const w = Math.sin(u * 6.2832 * 120) * Math.sin(v * 6.2832 * 120);
+    const k = l * (0.94 + 0.05 * w + 0.06 * (f - 0.5));
+    o.r = k * 0.98; o.g = k; o.b = k * 1.03;
+    o.h = 0.5 + 0.2 * w + 0.1 * f; o.ro = 0.9; o.me = 0;
+  },
+  // sangles en nylon (MOLLE) : bandes cousues, trame serrée
+  nylon(u, v, o) {
+    const row = (v * 10) % 1, strap = row < 0.66, w = Math.sin(u * 6.2832 * 170) * Math.sin((v + u * 0.4) * 6.2832 * 170), f = fbm(u, v, 24, 2, 101);
+    let l = strap ? 1.0 + 0.04 * w : 0.68;
+    if (strap && (Math.abs(row - 0.05) < 0.014 || Math.abs(row - 0.61) < 0.014) && (u * 70) % 1 < 0.6) l *= 0.78;   // coutures
+    if (strap && (u * 7) % 1 < 0.035) l *= 0.7;                                                                     // points d'arrêt
+    l *= 0.94 + 0.12 * (f - 0.5);
+    o.r = o.g = o.b = l;
+    o.h = strap ? 0.7 + 0.08 * w : 0.25; o.ro = 0.8 + 0.1 * f; o.me = 0;
+  },
+  // cuir grainé (gants, bottes) avec usure plus claire
+  leather(u, v, o) {
+    const g = vnoise(u * 80, v * 80, 80, 111), g2 = vnoise(u * 160, v * 160, 160, 112), wear = sstep(0.6, 0.72, fbm(u, v, 4, 4, 113));
+    const l = (0.85 + 0.16 * g + 0.08 * g2) * (1 + wear * 0.28);
+    o.r = l * 1.02; o.g = l; o.b = l * 0.97;
+    o.h = 0.55 * g + 0.25 * g2; o.ro = 0.52 + 0.2 * g - wear * 0.12; o.me = 0;
+  },
+  // peau : pores et légères variations de teint
+  skin(u, v, o) {
+    const b = fbm(u, v, 5, 4, 121), p = vnoise(u * 140, v * 140, 140, 122);
+    const l = 0.97 + 0.07 * (b - 0.5) - (p < 0.15 ? 0.05 : 0);
+    o.r = l * (1 + 0.04 * (b - 0.5)); o.g = l; o.b = l * 0.99;
+    o.h = 0.5 + 0.1 * b - (p < 0.15 ? 0.25 : 0); o.ro = 0.5 + 0.12 * b; o.me = 0;
+  },
+  // acier bruni des armes : brossage, rayures, arêtes usées (métal nu plus clair et plus lisse)
+  gunmetal(u, v, o) {
+    const br = vnoise(u * 8, v * 256, 8, 131) * 0.6 + vnoise(u * 16, v * 512, 16, 132) * 0.4;
+    const wear = sstep(0.74, 0.8, fbm(u, v, 6, 4, 133) + Math.max(0, 0.5 - Math.min(u, 1 - u, v, 1 - v) * 10) * 0.5);
+    const scr = sstep(0.006, 0.0015, Math.abs(fbm(u * 2 % 1, v, 6, 3, 134) - 0.5)) * 0.8;
+    const l = 0.88 + 0.08 * (br - 0.5) + wear * 0.32 + scr * 0.25;
+    o.r = o.g = o.b = l;
+    o.h = 0.5 + 0.04 * br - scr * 0.2; o.ro = clamp(0.5 + 0.18 * (br - 0.5) - wear * 0.3 - scr * 0.2, 0.15, 1); o.me = 1;
+  },
+  // polymère granuleux (poignées, garde-mains)
+  polymer(u, v, o) {
+    const g = vnoise(u * 110, v * 110, 110, 141), f = fbm(u, v, 6, 3, 142), sc = sstep(0.7, 0.76, fbm(u, v, 4, 4, 143));
+    const l = 0.93 + 0.1 * (g - 0.5) + sc * 0.12;
+    o.r = o.g = o.b = l * (0.97 + 0.06 * f);
+    o.h = 0.4 + 0.45 * g; o.ro = 0.62 + 0.18 * g - sc * 0.1; o.me = 0;
   }
 };
 const surf = {};
-function getSurface(k) { return surf[k] || (surf[k] = makeSurface(k === 'fabric' || k === 'wood' ? 512 : Q.tex, SURF[k], { normal: { ribs: 3.2, crate: 2.2, sand: 1.1, stone: 3, plaster: 2.2, fabric: 0.8, concrete: 1.8, asphalt: 2.2, wood: 0.5 }[k] })); }
+// résolution : les textures du décor suivent la qualité ; celles des soldats et des armes sont fixes
+const SURF_SIZE = { fabric: 512, wood: 512, camoT: 512, camoCT: 512, nylon: 256, leather: 256, skin: 256, gunmetal: 256, polymer: 256 };
+const SURF_N = { ribs: 3.4, crate: 2.4, sand: 1.2, stone: 3.2, plaster: 2.4, fabric: 0.8, concrete: 2.2, asphalt: 2.4, wood: 0.8, camoT: 1.1, camoCT: 1.1, nylon: 1.6, leather: 1.4, skin: 0.5, gunmetal: 0.8, polymer: 1.2 };
+function getSurface(k) { return surf[k] || (surf[k] = makeSurface(SURF_SIZE[k] || Q.tex, SURF[k], { normal: SURF_N[k] })); }
 
 /* ---------- renderer / scène ---------- */
 let renderer, scene, cam, sun, hemi, vmScene, vmSun, vmHemi, vmFill, muzzleL, pmrem = null;
@@ -235,7 +322,10 @@ const SKY = {
   // Médina : fin d'après-midi, ombres longues ; Cargo : ciel bas et lourd
   medina: { sun: [0.62, 0.34, 0.5], col: 0xffe2c2, sunI: 2.3, zen: 0x4a78b0, hor: 0xf0cfa8, gnd: 0xb8966a, fog: 0xe2c4a0, dens: 0.0058, cloud: 0.34, cDark: 0.7, hemi: 0.2, env: 0.95 },
   cargo: { sun: [0.3, 0.5, -0.55], col: 0xd8e0ea, sunI: 0.95, zen: 0x46545f, hor: 0xa7afb2, gnd: 0x3e4246, fog: 0x98a2a8, dens: 0.0125, cloud: 0.95, cDark: 0.36, hemi: 0.22, env: 1.1 },
-  docks: { sun: [-0.5, 0.44, 0.52], col: 0xffe1bd, sunI: 1.5, zen: 0x5a7288, hor: 0xc9ccc8, gnd: 0x4f5458, fog: 0xb8bfc2, dens: 0.0085, cloud: 0.82, cDark: 0.5, hemi: 0.14, env: 0.8 }
+  docks: { sun: [-0.5, 0.44, 0.52], col: 0xffe1bd, sunI: 1.5, zen: 0x5a7288, hor: 0xc9ccc8, gnd: 0x4f5458, fog: 0xb8bfc2, dens: 0.0085, cloud: 0.82, cDark: 0.5, hemi: 0.14, env: 0.8 },
+  // entraînement : lumière claire et peu de brouillard, pour bien voir les cibles lointaines
+  range: { sun: [0.35, 0.62, 0.55], col: 0xfff2dc, sunI: 2.0, zen: 0x3f74b0, hor: 0xd3dde2, gnd: 0x55595c, fog: 0xc8d0d4, dens: 0.0032, cloud: 0.35, cDark: 0.7, hemi: 0.2, env: 0.85 },
+  labo: { sun: [0.5, 0.6, 0.45], col: 0xfff0dc, sunI: 2.1, zen: 0x3a6fae, hor: 0xd0dbe2, gnd: 0x55595c, fog: 0xc8d0d4, dens: 0.0038, cloud: 0.4, cDark: 0.7, hemi: 0.2, env: 0.85 }
 };
 const skyFrag = `
 varying vec3 vDir; uniform vec3 uZen,uHor,uGnd,uSun,uSunCol; uniform float uCloud,uCDark;
@@ -1046,7 +1136,7 @@ const fx = (function () {
 })();
 
 return {
-  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, setHidden, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
+  QUALITIES, get quality() { return qname; }, get Q() { return Q; }, get sky() { return cur.sky; }, sunDir, init, resize, setQuality, setScale, render, setVmCam, setVmSun, buildWorld, setHidden, fx, Batch, lin, rng, surfMat, getSurface, clamp, blobShadow,
   get scene() { return scene; }, get cam() { return cam; }, get renderer() { return renderer; }, get vmScene() { return vmScene; }, get rays() { return cur.rays; }
 };
 })();

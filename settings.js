@@ -27,6 +27,7 @@ const ACTIONS = [
   { id: 'use',    n: 'Utiliser (ramasser, poser, désamorcer)', g: 'Actions', d: ['KeyE', ''] },
   { id: 'buy',    n: 'Boutique',               g: 'Actions', d: ['KeyB', ''] },
   { id: 'map',    n: 'Carte',                  g: 'Actions', d: ['KeyM', ''] },
+  { id: 'tools',  n: 'Panneau d\'entraînement (stand de tir, zone de test)', g: 'Actions', d: ['KeyP', ''] },
   { id: 'scores', n: 'Tableau des scores',     g: 'Actions', d: ['Tab', ''] },
   { id: 'chat',   n: 'Chat',                   g: 'Actions', d: ['Enter', ''] }
 ];
@@ -200,6 +201,7 @@ function renderHelp(box) {
   row(key('buy'), 'Boutique (début de manche)');
   row(key('use'), 'Prendre une arme au sol · maintenu : poser / désamorcer la bombe');
   row(key('map'), 'Afficher ou fermer la carte');
+  row(key('tools'), 'Stand de tir : difficulté et départ · zone de test : outils');
   row(key('scores') + ' · ' + key('chat'), 'Scores · chat');
 }
 function refreshLabels() { renderHelp($('keysHelp')); if (isOpen) paintKeys(); }

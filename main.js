@@ -19,6 +19,8 @@ async function start() {
   if (!url) {
     const port = await freePort(parseInt(process.env.PORT, 10) || 3000);
     process.env.PORT = String(port);
+    // comptes joueurs : dans le dossier de l'application (le dossier du .exe n'est pas modifiable)
+    if (!process.env.DATA_DIR) process.env.DATA_DIR = require('path').join(app.getPath('userData'), 'data');
     require('./server.js');
     url = 'http://localhost:' + port;
   }

@@ -1,6 +1,6 @@
 {
   "name": "cs-arena",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "CS Arena - FPS tactique T vs CT (bombe, économie, manches) jouable dans le navigateur en multijoueur",
   "main": "main.js",
   "scripts": {
@@ -39,6 +39,7 @@
       "style.css",
       "game.js",
       "settings.js",
+      "account.js",
       "shared.js",
       "audio.js",
       "gfx.js",

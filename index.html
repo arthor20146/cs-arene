@@ -27,6 +27,9 @@
     <div id="timer">0:00</div>
     <div><div class="sc" id="sT">0</div><div class="lb">TERRORISTES</div></div>
   </div>
+  <!-- entraînement : bandeau du stand de tir / de la zone de test, infos de test -->
+  <div id="prac" class="hide"></div>
+  <div id="testinfo" class="hide"></div>
   <canvas id="radar" width="340" height="340"></canvas>
   <canvas id="bigmap" class="hide" width="900" height="900"></canvas>
   <div id="feed"></div>
@@ -87,9 +90,16 @@
   <h2>Partie en pause</h2>
   <p class="sub">Clique pour reprendre le contrôle de la souris.</p>
   <button class="go" id="resume">Reprendre</button>
+  <button class="go ghost hide" id="pracPause">Panneau d'entraînement</button>
   <button class="go ghost" id="setPause">Paramètres</button>
   <button class="go ghost" id="leave">Quitter la partie</button>
 </div></div>
+
+<!-- Panneau d'entraînement (stand de tir ou zone de test) -->
+<div id="pracPanel" class="ov hide"><div class="card" id="pracCard"></div></div>
+
+<!-- Compte joueur -->
+<div id="account" class="ov hide" role="dialog" aria-modal="true" aria-label="Compte"><div class="card" id="accCard"></div></div>
 
 <!-- Menu principal -->
 <div id="menu" class="ov"><div class="mwrap">
@@ -97,8 +107,12 @@
     <div class="brand"><span>CS</span><h1>ARENA</h1><p>T contre CT · pose ou désamorce la bombe</p></div>
     <nav>
       <button class="nav on" id="navPlay">JOUER</button>
+      <button class="nav" id="navRange">STAND DE TIR</button>
+      <button class="nav" id="navTest">ZONE DE TEST</button>
+      <button class="nav" id="navAcc">COMPTE</button>
       <button class="nav" id="setMenu">PARAMÈTRES</button>
     </nav>
+    <div class="who" id="menuWho"></div>
   </div>
   <div class="mpanel">
     <div class="mhead"><h2>NOUVELLE PARTIE</h2><span class="chip" id="modeChip">MODE · BOMBE</span></div>
@@ -108,11 +122,14 @@
       <button data-m="docks" style="--c:#4aa3c7"><b>DOCKS</b><small>Port · conteneurs</small></button>
       <button data-m="medina" style="--c:#c9684a"><b>MÉDINA</b><small>Ruelles · couvert</small></button>
       <button data-m="cargo" style="--c:#8ccf4d"><b>CARGO</b><small>Hangar · industriel</small></button>
+      <button data-m="labo" style="--c:#c99bff" class="practice-only"><b>LABO</b><small>Carte de test</small></button>
     </div>
     <div class="sec">MODE</div>
     <div class="cards modes" id="modes">
       <button data-mo=""><b>BOMBE</b><small>Classique · pose ou désamorce</small></button>
       <button data-mo="desordre"><b>RIEN N'EST À SA PLACE</b><small>Transfuges, murs, scores, armes en désordre</small></button>
+      <button data-mo="range"><b>STAND DE TIR</b><small>Cibles qui apparaissent · 4 difficultés</small></button>
+      <button data-mo="sandbox"><b>ZONE DE TEST</b><small>Mannequins, invincible, toutes les armes</small></button>
     </div>
     <div class="sec">ÉQUIPE</div>
     <div class="cards teams" id="teams">
@@ -125,7 +142,8 @@
       <div><label class="f">PSEUDO</label><input type="text" id="name" maxlength="16" placeholder="Ton pseudo" autocomplete="off"></div>
       <div><label class="f">SALLE (même code que tes amis)</label><input type="text" id="room" maxlength="16" placeholder="main" autocomplete="off"></div>
     </div>
-    <label class="chk"><input type="checkbox" id="lobbyChk"> Passer par le lobby (attendre les joueurs, PRÊT, lancer la partie)</label>
+    <label class="chk" id="lobbyRow"><input type="checkbox" id="lobbyChk"> Passer par le lobby (attendre les joueurs, PRÊT, lancer la partie)</label>
+    <p class="pnote hide" id="pracNote"></p>
     <button class="go big" id="play">JOUER</button>
     <div class="err" id="err"></div>
     <details class="khelp"><summary>Voir les touches</summary><div class="keys" id="keysHelp"></div></details>
@@ -137,7 +155,11 @@
 <div id="lobby" class="hide">
   <div class="lb-top">
     <button id="lbBack" title="Quitter">‹</button><b class="lb-logo">CS ARENA</b>
-    <span class="lb-tab on">JOUER</span><span class="lb-room" id="lbRoom"></span>
+    <span class="lb-tab on">JOUER</span>
+    <button class="lb-tab" id="lbRange" type="button">STAND DE TIR</button>
+    <button class="lb-tab" id="lbTest" type="button">ZONE DE TEST</button>
+    <button class="lb-tab" id="lbAcc" type="button">COMPTE</button>
+    <span class="lb-room" id="lbRoom"></span>
   </div>
   <div class="lb-left">
     <div class="lb-p"><h4>CARTE</h4><div id="lbMaps"></div></div>
@@ -162,6 +184,7 @@
 <script src="gfx.js"></script>
 <script src="models.js"></script>
 <script src="settings.js"></script>
+<script src="account.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

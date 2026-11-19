@@ -1,7 +1,8 @@
-// Serveur CS Arena : sert /public + salles WebSocket (logique de manches, économie, bombe, dégâts)
+// Serveur CS Arena : sert /public, API des comptes (/api/...) + salles WebSocket (manches, économie, bombe, dégâts, entraînement)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 // Docker : fichiers client dans ./public ; dépôt à plat (npm start en local) : à la racine
 const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
@@ -19,10 +20,159 @@ const MIME = {
 if (process.env.MAX_ROUNDS) CFG.maxRounds = parseInt(process.env.MAX_ROUNDS, 10) || CFG.maxRounds;
 if (process.env.MIN_PLAYERS) CFG.minPlayers = parseInt(process.env.MIN_PLAYERS, 10) || CFG.minPlayers;
 
+/* ============================================================
+   Comptes : pseudo + mot de passe (scrypt), sessions par jeton, statistiques, records du stand de tir.
+   Tout est rangé dans DATA_DIR/accounts.json (dossier ./data par défaut).
+   ============================================================ */
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const RANGE_DIFFS = ['easy', 'medium', 'hard', 'expert'], RANGE_DURS = [30, 60, 90];
+const Acc = (function () {
+  const FILE = path.join(DATA_DIR, 'accounts.json');
+  let db = { v: 1, users: {} }, dirty = false, writing = false;
+  const tokens = new Map();                      // jeton -> clé du compte (pseudo en minuscules)
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
+  try { const raw = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (raw && raw.users) db = raw; } catch (e) {}
+  Object.keys(db.users).forEach((k) => (db.users[k].tokens || []).forEach((t) => tokens.set(t.t, k)));
+  console.log('Comptes : ' + Object.keys(db.users).length + ' (fichier ' + FILE + ')');
+
+  // écriture différée et atomique (fichier temporaire puis renommage)
+  const save = () => { dirty = true; };
+  setInterval(() => {
+    if (!dirty || writing) return;
+    dirty = false; writing = true;
+    const tmp = FILE + '.tmp';
+    fs.writeFile(tmp, JSON.stringify(db), (err) => {
+      if (err) { writing = false; dirty = true; console.error('Sauvegarde des comptes impossible :', err.message); return; }
+      fs.rename(tmp, FILE, (e2) => { writing = false; if (e2) { dirty = true; console.error('Sauvegarde des comptes impossible :', e2.message); } });
+    });
+  }, 2500).unref();
+
+  const STAT0 = () => ({ kills: 0, deaths: 0, hs: 0, rounds: 0, roundWins: 0, matches: 0, matchWins: 0, mvp: 0, aces: 0, range: 0 });
+  const xpOf = (s) => s.kills * 10 + s.hs * 2 + s.roundWins * 20 + s.matches * 40 + s.matchWins * 100 + s.mvp * 25 + s.aces * 150 + s.range * 15;
+  const levelOf = (x) => Math.floor(Math.sqrt(x / 120)) + 1;   // niveau n à partir de 120 × (n-1)² XP
+  function pub(u) {
+    const s = Object.assign(STAT0(), u.stats), xp = xpOf(s), lv = levelOf(xp);
+    return { name: u.name, created: u.created, stats: s, range: u.range || {}, xp, lv, cur: 120 * (lv - 1) * (lv - 1), next: 120 * lv * lv };
+  }
+  const NAME_RE = /^[A-Za-z0-9_-]{3,16}$/;
+  const hash = (pass, salt) => new Promise((res, rej) => crypto.scrypt(pass, salt, 64, (e, k) => (e ? rej(e) : res(k.toString('hex')))));
+  function newToken(k) {
+    const u = db.users[k], t = crypto.randomBytes(24).toString('hex');
+    u.tokens = (u.tokens || []).concat([{ t, at: Date.now() }]);
+    while (u.tokens.length > 6) tokens.delete(u.tokens.shift().t);   // 6 appareils connectés au plus
+    tokens.set(t, k); save();
+    return t;
+  }
+  const byTok = (t) => { const k = typeof t === 'string' ? tokens.get(t) : null; return k && db.users[k] ? db.users[k] : null; };
+  const keyOf = (u) => u.name.toLowerCase();
+  const okPass = (p) => typeof p === 'string' && p.length >= 6 && p.length <= 72;
+
+  async function register(name, pass) {
+    name = typeof name === 'string' ? name.trim() : '';
+    if (!NAME_RE.test(name)) return { ok: false, err: 'Pseudo : 3 à 16 caractères (lettres, chiffres, - et _)' };
+    if (!okPass(pass)) return { ok: false, err: 'Mot de passe : au moins 6 caractères' };
+    const k = name.toLowerCase();
+    if (db.users[k]) return { ok: false, err: 'Ce pseudo est déjà pris' };
+    const salt = crypto.randomBytes(16).toString('hex');
+    const h = await hash(pass, salt);
+    if (db.users[k]) return { ok: false, err: 'Ce pseudo est déjà pris' };
+    db.users[k] = { name, salt, hash: h, created: Date.now(), tokens: [], stats: STAT0(), range: {} };
+    const tok = newToken(k);
+    return { ok: true, tok, user: pub(db.users[k]) };
+  }
+  async function login(name, pass) {
+    const k = typeof name === 'string' ? name.trim().toLowerCase() : '', u = db.users[k];
+    if (!u || typeof pass !== 'string') { await hash('x', 'y'); return { ok: false, err: 'Pseudo ou mot de passe incorrect' }; }
+    const h = await hash(pass, u.salt);
+    if (!crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(u.hash, 'hex'))) return { ok: false, err: 'Pseudo ou mot de passe incorrect' };
+    return { ok: true, tok: newToken(k), user: pub(u) };
+  }
+  function logout(t) {
+    const u = byTok(t); if (!u) return;
+    u.tokens = (u.tokens || []).filter((x) => x.t !== t); tokens.delete(t); save();
+  }
+  async function changePass(t, old, pass) {
+    const u = byTok(t); if (!u) return { ok: false, err: 'Session expirée, reconnecte-toi', code: 401 };
+    const h = await hash(typeof old === 'string' ? old : '', u.salt);
+    if (!crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(u.hash, 'hex'))) return { ok: false, err: 'Ancien mot de passe incorrect' };
+    if (!okPass(pass)) return { ok: false, err: 'Nouveau mot de passe : au moins 6 caractères' };
+    u.salt = crypto.randomBytes(16).toString('hex'); u.hash = await hash(pass, u.salt);
+    // les autres appareils sont déconnectés
+    (u.tokens || []).forEach((x) => { if (x.t !== t) tokens.delete(x.t); });
+    u.tokens = (u.tokens || []).filter((x) => x.t === t); save();
+    return { ok: true };
+  }
+  // ajoute des statistiques à un compte ; renvoie son niveau
+  function stat(k, d) {
+    const u = db.users[k]; if (!u) return 0;
+    const s = u.stats || (u.stats = STAT0());
+    Object.keys(d).forEach((n) => { s[n] = (s[n] || 0) + (d[n] | 0); });
+    save();
+    return levelOf(xpOf(Object.assign(STAT0(), s)));
+  }
+  const level = (k) => (db.users[k] ? levelOf(xpOf(Object.assign(STAT0(), db.users[k].stats))) : 0);
+  // fin d'une série au stand de tir : record par difficulté et durée
+  function range(m) {
+    const u = byTok(m.tok); if (!u) return { ok: false, err: 'Session expirée, reconnecte-toi', code: 401 };
+    const d = m.d, t = m.t | 0;
+    if (RANGE_DIFFS.indexOf(d) < 0 || RANGE_DURS.indexOf(t) < 0) return { ok: false, err: 'Série invalide' };
+    const n = (v, max) => Math.max(0, Math.min(max, Math.round(+v || 0)));
+    const r = { score: n(m.score, 999999), hits: n(m.hits, 9999), miss: n(m.miss, 9999), acc: n(m.acc, 100), rt: n(m.rt, 99999), combo: n(m.combo, 9999), at: Date.now() };
+    const key = d + '_' + t, R = u.range || (u.range = {}), prev = R[key];
+    const rec = !prev || r.score > prev.score;
+    if (rec) R[key] = r;
+    (u.stats || (u.stats = STAT0())).range = (u.stats.range || 0) + 1;
+    save();
+    return { ok: true, rec, prev: prev ? prev.score : 0, user: pub(u) };
+  }
+  function top(d, t) {
+    const key = d + '_' + (t | 0), list = [];
+    Object.keys(db.users).forEach((k) => { const r = db.users[k].range && db.users[k].range[key]; if (r) list.push({ n: db.users[k].name, s: r.score, a: r.acc, h: r.hits }); });
+    list.sort((a, b) => b.s - a.s);
+    return { ok: true, list: list.slice(0, 10) };
+  }
+  // trop d'essais depuis la même adresse
+  const tries = new Map();
+  setInterval(() => { const now = Date.now(); tries.forEach((e, k) => { if (now > e[1]) tries.delete(k); }); }, 60000).unref();
+  function limited(key, n) { const now = Date.now(); let e = tries.get(key); if (!e || now > e[1]) { e = [0, now + 60000]; tries.set(key, e); } return ++e[0] > n; }
+  const SLOW = { ok: false, err: 'Trop d\'essais : réessaie dans une minute', code: 429 };
+
+  async function route(r, m, ip) {
+    switch (r) {
+      case 'register': return limited('r' + ip, 6) ? SLOW : register(m.name, m.pass);
+      case 'login': return limited('l' + ip, 12) ? SLOW : login(m.name, m.pass);
+      case 'me': { const u = byTok(m.tok); return u ? { ok: true, user: pub(u) } : { ok: false, err: 'Session expirée', code: 401 }; }
+      case 'logout': logout(m.tok); return { ok: true };
+      case 'password': return limited('p' + ip, 8) ? SLOW : changePass(m.tok, m.old, m.pass);
+      case 'range': return range(m);
+      case 'top': return top(m.d, m.t);
+    }
+    return { ok: false, err: 'Introuvable', code: 404 };
+  }
+  return { route, byTok, keyOf, stat, level, exists: (n) => !!db.users[String(n).toLowerCase()] };
+})();
+
+function json(res, code, o) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); }
+function api(req, res, r) {
+  if (req.method !== 'POST') return json(res, 405, { ok: false, err: 'Méthode non autorisée' });
+  let body = '', size = 0, dead = false;
+  req.on('data', (c) => { size += c.length; if (size > 4096) { dead = true; json(res, 413, { ok: false, err: 'Requête trop grosse' }); req.destroy(); } else body += c; });
+  req.on('end', async () => {
+    if (dead) return;
+    let m;
+    try { m = JSON.parse(body || '{}'); } catch (e) { return json(res, 400, { ok: false, err: 'Requête invalide' }); }
+    if (!m || typeof m !== 'object') m = {};
+    const ip = String(req.headers['fly-client-ip'] || (req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '');
+    try { const out = await Acc.route(r, m, ip); json(res, out.ok ? 200 : (out.code || 400), out); }
+    catch (e) { console.error(e); json(res, 500, { ok: false, err: 'Erreur du serveur' }); }
+  });
+}
+
 const server = http.createServer((req, res) => {
   let url;
   try { url = decodeURIComponent((req.url || '/').split('?')[0]); } catch (e) { res.writeHead(400); return res.end(); }
   if (url === '/healthz') { res.writeHead(200); return res.end('ok'); }
+  if (url.startsWith('/api/')) return api(req, res, url.slice(5));
   const rel = url === '/' ? '/index.html' : url;
   const file = path.normalize(path.join(PUB, rel));
   if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
@@ -42,8 +192,13 @@ const send = (ws, o) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.str
 class Room {
   constructor(name, mapId, mode) {
     this.name = name;
-    this.map = MAPS[mapId] || MAPS[process.env.MAP] || MAPS.dust; // carte choisie par le créateur de la salle
-    this.mode = mode === 'desordre' ? 'desordre' : '';          // 'desordre' : rien n'est à sa place
+    // '' bombe · 'desordre' rien n'est à sa place · 'range' stand de tir · 'sandbox' zone de test
+    this.mode = ['desordre', 'range', 'sandbox'].indexOf(mode) >= 0 ? mode : '';
+    const M = MAPS[mapId];
+    if (this.mode === 'range') this.map = MAPS.range;
+    else if (this.mode === 'sandbox') this.map = M || MAPS.labo;
+    else this.map = (M && !M.practice) ? M : (MAPS[process.env.MAP] || MAPS.dust); // carte choisie par le créateur de la salle
+    this.spawnN = 0; this.bombReset = 0;
     this.hidden = new Set();                                    // obstacles disparus (indices dans map.boxes)
     this.chaosQ = []; this.jam = null; this.inv = 0; this.lastChaos = '';
     this.players = new Map();
@@ -59,6 +214,8 @@ class Room {
   }
 
   /* ---------- utilitaires ---------- */
+  get practice() { return this.mode === 'range' || this.mode === 'sandbox'; }
+  god(t) { return this.mode === 'sandbox' && !!(t.opt && t.opt.god); }        // zone de test : invincible
   all() { return Array.from(this.players.values()); }
   team(t) { return this.all().filter((p) => p.team === t); }
   alive(t) { return this.all().filter((p) => p.team === t && p.alive); }
@@ -219,6 +376,13 @@ class Room {
       const c = ts[Math.floor(Math.random() * ts.length)];
       this.bomb = { s: 'carried', x: c.x, y: 0, z: c.z, c: c.id, site: '', at: 0 };
     } else this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 };
+    if (this.practice) {   // entraînement : pas de phase d'achat, la manche ne finit jamais, argent illimité
+      this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 }; this.bombReset = 0;
+      this.all().forEach((p) => { p.money = CFG.maxMoney; });
+      this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + 864e5;
+      this.bcast({ type: 'rstart', round: this.round, pm: this.mode });
+      return;
+    }
     this.phase = 'freeze';
     this.phaseEnd = now + CFG.freeze * 1000;
     this.bcast({ type: 'rstart', round: this.round });
@@ -327,7 +491,7 @@ class Room {
   }
 
   endRound(winner, reason, hero) {
-    if (this.phase !== 'live') return;
+    if (this.phase !== 'live' || this.practice) return;
     const loser = winner === 'T' ? 'CT' : 'T';
     this.score[winner]++;
     this.loss[winner] = 0;
@@ -345,12 +509,19 @@ class Room {
     const winTarget = CFG.maxRounds / 2 + 1;
     const over = this.score[winner] >= winTarget;
     const mvp = this.pickMvp(winner, hero);
+    // statistiques des comptes
+    this.all().forEach((p) => {
+      if (!p.acc || !p.team) return;
+      const d = { rounds: 1, roundWins: p.team === winner ? 1 : 0, mvp: mvp === p ? 1 : 0 };
+      if (over) { d.matches = 1; d.matchWins = p.team === winner ? 1 : 0; }
+      p.lv = Acc.stat(p.acc, d);
+    });
     this.bcast({ type: 'rend', w: winner, r: reason, sc: this.score, over: over ? 1 : 0, mvp: mvp ? { i: mvp.id, n: mvp.name, k: mvp.rk, h: hero && mvp.id === hero ? 1 : 0 } : null });
     if (over) { this.phase = 'match'; this.phaseEnd = Date.now() + 10000; }
   }
 
   checkEnd(now) {
-    if (this.phase !== 'live') return;
+    if (this.phase !== 'live' || this.practice) return;
     const aT = this.alive('T').length, aC = this.alive('CT').length, b = this.bomb;
     if (b.s === 'planted') {
       if (this.started.CT > 0 && aC === 0) this.endRound('T', 'elim');
@@ -364,9 +535,9 @@ class Room {
   /* ---------- combat ---------- */
   killPlayer(v, k, wid, hs) {
     if (!v.alive) return;
-    v.alive = false; v.hp = 0; v.d++; v.act = null; v.pg = 0;
+    v.alive = false; v.hp = 0; v.d++; v.act = null; v.pg = 0; v.diedAt = Date.now();
     const held = v.inv.primary || v.inv.secondary;
-    if (held) this.dropWeapon(v, held, 0.6);
+    if (held && !this.practice) this.dropWeapon(v, held, 0.6);   // entraînement : on garde ses armes
     if (this.bomb.s === 'carried' && this.bomb.c === v.id) {
       this.bomb.s = 'dropped'; this.bomb.c = null; this.bomb.x = v.x; this.bomb.y = 0; this.bomb.z = v.z;
     }
@@ -380,14 +551,16 @@ class Room {
       // ACE : il a éliminé toute l'équipe adverse (5 sur 5, ou tous les adversaires si moins de 5, au moins 3)
       const foes = this.started[v.team] || 0;
       if (foes >= 3 && rk >= Math.min(5, foes)) { ace = 1; k.ac++; }
+      if (k.acc && !this.practice) k.lv = Acc.stat(k.acc, { kills: 1, hs: hs ? 1 : 0, aces: ace });
     }
+    if (v.acc && !this.practice) v.lv = Acc.stat(v.acc, { deaths: 1 });
     this.bcast({ type: 'kill', k: k ? k.id : 0, v: v.id, w: wid || 'bomb', hs: hs ? 1 : 0, rk, fb, ace });
   }
 
   onHit(sh, m) {
     const t = this.players.get(num(m.t));
     if (!t || !sh.alive || !t.alive || sh.id === t.id || sh.team === t.team) return;
-    if (this.phase !== 'live') return;
+    if (this.phase !== 'live' || this.mode === 'range') return;   // stand de tir : pas de combat entre joueurs
     const wid = sh.inv.cur, w = WEAPONS[wid];
     if (!w) return;
     const now = Date.now();
@@ -421,7 +594,7 @@ class Room {
     if (dmg <= 0) return;
     if (armored) t.armor = Math.max(0, t.armor - armored * 0.3 * (1 - w.ap * 0.5));
     dmg = Math.round(dmg);
-    t.hp -= dmg;
+    if (!this.god(t)) t.hp -= dmg;
     send(sh.ws, { type: 'hitc', hs: hs ? 1 : 0, kill: t.hp <= 0 ? 1 : 0 });
     send(t.ws, { type: 'hurt', dx: r2(sh.x - t.x), dz: r2(sh.z - t.z), dmg, hs: hs ? 1 : 0 });
     if (t.hp <= 0) { this.killPlayer(t, sh, wid, hs); this.checkEnd(now); }
@@ -429,38 +602,41 @@ class Room {
 
   buy(p, item) {
     const now = Date.now();
-    const open = p.alive && (this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000));
+    const P = this.practice;   // entraînement : boutique toujours ouverte, gratuite, armes des deux camps
+    const open = p.alive && (P || this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000));
     if (!open) return;
+    const can = (c) => P || p.money >= c, pay = (c) => { if (!P) p.money -= c; };
     if (item === 'armor') {
-      if (p.armor >= 100 || p.money < 650) return;
-      p.money -= 650; p.armor = 100; return;
+      if (p.armor >= 100 || !can(650)) return;
+      pay(650); p.armor = 100; return;
     }
     if (item === 'helmet') { // gilet + casque (350 si on a déjà le gilet)
       const cost = p.armor >= 100 ? 350 : 1000;
-      if (p.helmet || p.money < cost) return;
-      p.money -= cost; p.armor = 100; p.helmet = true; return;
+      if (p.helmet || !can(cost)) return;
+      pay(cost); p.armor = 100; p.helmet = true; return;
     }
     if (item === 'kit') {
-      if (p.team !== 'CT' || p.kit || p.money < 400) return;
-      p.money -= 400; p.kit = true; return;
+      if ((p.team !== 'CT' && !P) || p.kit || !can(400)) return;
+      pay(400); p.kit = true; return;
     }
     if (GREN[item]) {
       const gd = GREN[item];
-      if (p.money < gd.price || p.g[item] >= gd.max || this.gTotal(p) >= CFG.grenTotal) return;
-      p.money -= gd.price; p.g[item]++; return;
+      if (!can(gd.price) || p.g[item] >= gd.max || this.gTotal(p) >= CFG.grenTotal) return;
+      pay(gd.price); p.g[item]++; return;
     }
     const w = WEAPONS[item];
-    if (!w || w.slot === 3 || w.price <= 0) return;
-    if (w.team && w.team !== p.team) return;
-    if (p.money < w.price) return;
+    if (!w || w.slot === 3 || (w.price <= 0 && !P)) return;
+    if (w.team && w.team !== p.team && !P) return;
+    if (!can(w.price)) return;
     const held = w.slot === 1 ? p.inv.primary : p.inv.secondary;
     if (held === item) return;                 // déjà en main : on ne paie pas deux fois
-    p.money -= w.price;
-    if (held) this.dropWeapon(p, held, 0.9);   // l'ancienne arme tombe au sol
+    pay(w.price);
+    if (held && !P) this.dropWeapon(p, held, 0.9);   // l'ancienne arme tombe au sol
+    if (held && P) delete p.am[held];                // entraînement : elle est simplement remplacée
     if (w.slot === 1) p.inv.primary = item; else p.inv.secondary = item;
     p.inv.cur = item;
     delete p.am[item];                         // arme neuve : munitions pleines
-    p.bought[item] = w.price;                  // achetée à cette manche : revendable tant que la boutique est ouverte
+    if (!P) p.bought[item] = w.price;          // achetée à cette manche : revendable tant que la boutique est ouverte
   }
 
   // revente d'une arme achetée pendant cette manche (remboursement intégral)
@@ -529,7 +705,7 @@ class Room {
     if (Array.isArray(m.v)) { mvx = num(m.v[0]); mvz = num(m.v[1]); const ml = Math.hypot(mvx, mvz); if (ml > 7) { mvx *= 7 / ml; mvz *= 7 / ml; } }
     const g = { i: this.nextG++, k, owner: p.id, x: sx, y: sy, z: sz, vx: ux * sp + mvx * 0.7, vy: uy * sp, vz: uz * sp + mvz * 0.7, at: now + def.fuse * 1000 };
     this.gren.push(g);
-    p.g[k]--;
+    if (!(this.mode === 'sandbox' && p.opt && p.opt.infN)) p.g[k]--;   // zone de test : grenades illimitées
     if (p.inv.cur === k && p.g[k] <= 0) p.inv.cur = p.inv.primary || p.inv.secondary || 'knife';
     this.bcast({ type: 'throw', id: p.id, k, x: r2(sx), y: r2(sy), z: r2(sz) }, p.id);
   }
@@ -578,9 +754,10 @@ class Room {
       let any = false;
       this.all().forEach((t) => {
         if (!t.alive || (owner && t.team === owner.team && t.id !== owner.id)) return;
+        if (this.mode === 'range' && owner && t !== owner) return;
         if (Math.hypot(t.x - z.x, t.z - z.z) > z.r || Math.abs(t.y - z.y) > 2.2) return;
         if (this.segBlocked(z.x, z.y + 0.5, z.z, t.x, t.y + 0.5, t.z)) return;
-        t.hp -= CFG.fireDmg;
+        if (!this.god(t)) t.hp -= CFG.fireDmg;
         send(t.ws, { type: 'hurt', dx: 0, dz: 0, dmg: CFG.fireDmg, hs: 0, fire: 1 });
         any = true;
         if (t.hp <= 0) this.killPlayer(t, owner, 'molo', false);
@@ -631,6 +808,7 @@ class Room {
     const R = CFG.heRadius;
     this.all().forEach((t) => {
       if (!t.alive || (owner && t.team === owner.team && t.id !== owner.id)) return;
+      if (this.mode === 'range' && owner && t !== owner) return;
       const cy = t.y + (t.c ? 0.7 : 1.0);
       const d = Math.hypot(g.x - t.x, g.y - cy, g.z - t.z);
       if (d > R) return;
@@ -639,7 +817,7 @@ class Room {
       if (t.armor > 0) { dmg *= CFG.armorBody; t.armor = Math.max(0, t.armor - dmg * 0.4); }
       dmg = Math.round(dmg);
       if (dmg < 1) return;
-      t.hp -= dmg;
+      if (!this.god(t)) t.hp -= dmg;
       send(t.ws, { type: 'hurt', dx: r2(g.x - t.x), dz: r2(g.z - t.z), dmg, hs: 0 });
       if (owner && owner !== t) send(owner.ws, { type: 'hitc', hs: 0, kill: t.hp <= 0 ? 1 : 0 });
       if (t.hp <= 0) this.killPlayer(t, owner, 'he', false);
@@ -672,7 +850,7 @@ class Room {
       this.autoPickup();
       if (now >= this.phaseEnd) {
         this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.live * 1000;
-        if (this.mode) this.planChaos(now); else this.chaosQ = [];
+        if (this.mode === 'desordre') this.planChaos(now); else this.chaosQ = [];
       }
     } else if (this.phase === 'live') {
       this.tickLive(now);
@@ -688,8 +866,9 @@ class Room {
   }
 
   tickLive(now) {
+    if (this.mode === 'desordre') this.tickChaos(now);   // désordre éventuel de la manche
+    if (this.practice) this.tickPractice(now);
     const b = this.bomb;
-    if (this.mode) this.tickChaos(now);   // désordre éventuel de la manche
     this.autoPickup();
     // ramassage de la bombe
     if (b.s === 'dropped') {
@@ -725,7 +904,7 @@ class Room {
         if (p.pg >= 1) {
           b.s = 'defused'; p.act = null; p.pg = 0;
           this.bcast({ type: 'msg', text: 'La bombe a été désamorcée', kind: 'bomb' });
-          this.endRound('CT', 'defuse', p.id);
+          if (this.practice) this.bombReset = now + 3000; else this.endRound('CT', 'defuse', p.id);
         }
       }
     });
@@ -734,15 +913,63 @@ class Room {
     if (b.s === 'planted' && now >= b.at) {
       b.s = 'exploded';
       this.all().forEach((p) => {
-        if (!p.alive) return;
+        if (!p.alive || this.god(p)) return;
         const d = Math.hypot(p.x - b.x, p.z - b.z);
         if (d < 12) this.killPlayer(p, null, 'bomb', false);
         else if (d < 25) { p.hp -= Math.round(150 * (1 - (d - 12) / 13)); if (p.hp <= 0) this.killPlayer(p, null, 'bomb', false); }
       });
+      if (this.practice) { this.bombReset = now + 4000; this.msg('La bombe a explosé · la zone de test continue', 'bomb'); return; }
       this.endRound('T', 'bomb', b.by);
       return;
     }
     this.checkEnd(now);
+  }
+
+  /* ---------- entraînement (stand de tir, zone de test) ---------- */
+  tickPractice(now) {
+    this.all().forEach((p) => {
+      p.money = CFG.maxMoney;
+      if (!p.alive && p.team && now - (p.diedAt || 0) > 3000) this.spawnPlayer(p, this.spawnN++);   // réapparition après 3 s
+    });
+    if (this.bombReset && now >= this.bombReset) { this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 }; this.bombReset = 0; }
+  }
+  // commandes du panneau de la zone de test
+  sandbox(p, m) {
+    const a = m.a, bm = this.bomb;
+    const dropBomb = () => { if (bm.s === 'carried' && bm.c === p.id) { bm.s = 'dropped'; bm.c = null; bm.x = p.x; bm.y = 0; bm.z = p.z; } };
+    if (a === 'team' && (m.team === 'T' || m.team === 'CT') && m.team !== p.team) {
+      p.team = m.team; p.home = null; p.act = null; p.pg = 0;
+      if (p.team !== 'T') dropBomb();
+      // le pistolet de départ suit le camp
+      const base = this.defaultSecondary(p.team);
+      if (p.inv.secondary === 'glock' || p.inv.secondary === 'usp') {
+        const old = p.inv.secondary; p.inv.secondary = base; delete p.am[old];
+        if (p.inv.cur === old) p.inv.cur = base;
+      }
+    } else if (a === 'heal') { if (p.alive) { p.hp = 100; p.armor = 100; p.helmet = true; } }
+    else if (a === 'respawn') this.spawnPlayer(p, this.spawnN++);
+    else if (a === 'tp') {
+      if (!p.alive) return;
+      p.x = Math.max(-39.5, Math.min(39.5, num(m.x))); p.z = Math.max(-39.5, Math.min(39.5, num(m.z))); p.y = Math.max(0, Math.min(8, num(m.y)));
+      p.yaw = num(m.yaw, p.yaw); p.act = null; p.pg = 0; p.tp = (p.tp || 0) + 1;
+      send(p.ws, { type: 'tp', x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), c: 0, s: p.tp, n: '' });
+    } else if (a === 'bomb') {
+      if (!p.alive) return;
+      if (p.team !== 'T') this.sandbox(p, { a: 'team', team: 'T' });
+      this.bomb = { s: 'carried', x: p.x, y: 0, z: p.z, c: p.id, site: '', at: 0 }; this.bombReset = 0;
+    } else if (a === 'map' && typeof m.map === 'string' && MAPS[m.map] && MAPS[m.map] !== this.map) {
+      this.map = MAPS[m.map]; this.hidden = new Set(); this.jam = null; this.inv = 0;
+      this.drops = []; this.dropsDirty = true; this.gren = []; this.zones = [];
+      this.bomb = { s: 'none', x: 0, y: 0, z: 0, c: null, site: '', at: 0 }; this.bombReset = 0;
+      this.all().forEach((q) => { if (q.team) this.spawnPlayer(q, this.spawnN++); });
+      this.msg('Carte : ' + this.map.name, 'info');
+    } else if (a === 'chaos') {
+      const now = Date.now(), rand = (x, y) => x + Math.floor(Math.random() * (y - x + 1));
+      if (m.k === 'walls') { if (phaseBoxes(this.map).length) this.chaosWalls(rand(1, 4)); }
+      else if (m.k === 'jam') { const s = m.s === 2 ? 2 : 1, t = rand(6, 14); this.jam = { s, until: now + t * 1000 }; this.bcast({ type: 'chaos', k: 'jam', s, t }); }
+      else if (m.k === 'invert') { const t = rand(5, 10); this.inv = now + t * 1000; this.bcast({ type: 'chaos', k: 'invert', t }); }
+      else if (m.k === 'restore') { this.hidden = new Set(); this.jam = null; this.inv = 0; this.bcast({ type: 'chaos', k: 'restore', hb: [] }); }
+    } else if (a === 'clear') { this.gren = []; this.zones = []; this.drops = []; this.dropsDirty = true; }
   }
 
   snapshot(now) {
@@ -753,12 +980,13 @@ class Room {
     const pl = this.all().map((p) => ({
       i: p.id, n: p.name, t: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), r: r2(p.yaw), p: r2(p.pitch),
       c: p.c, w: p.inv.cur, a: p.alive ? 1 : 0, rdy: p.ready ? 1 : 0, k: p.k, d: p.d, h: p.helmet ? 1 : 0, l: p.rl ? 1 : 0,
-      q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0, ac: p.ac, mv: p.mv
+      q: p.act ? (p.act.type === 'plant' ? 1 : 2) : 0, g: p.act ? r2(Math.min(1, p.pg || 0)) : 0, kt: p.kit ? 1 : 0, ac: p.ac, mv: p.mv,
+      vf: p.acc ? 1 : 0, lv: p.lv || 0
     }));
-    const buyOpen = this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
+    const buyOpen = this.practice || this.phase === 'freeze' || (this.phase === 'live' && now < this.liveStart + CFG.buyExtra * 1000);
     const common = {
       type: 'snap', mp: this.map.id, ph: this.phase, te: r2(te), rd: this.round, sc: this.score,
-      hf: this.round > CFG.maxRounds / 2 ? 1 : 0, md: this.mode ? 1 : 0, hb: Array.from(this.hidden),
+      hf: this.round > CFG.maxRounds / 2 ? 1 : 0, md: this.mode === 'desordre' ? 1 : 0, pm: this.practice ? this.mode : '', hb: Array.from(this.hidden),
       jm: this.jam && now < this.jam.until ? { s: this.jam.s, t: r2((this.jam.until - now) / 1000) } : 0,
       iv: now < this.inv ? r2((this.inv - now) / 1000) : 0,
       b: { s: b.s, x: r2(b.x), y: r2(b.y), z: r2(b.z), c: b.c, site: b.site }, pl,
@@ -846,8 +1074,10 @@ class Room {
         if (this.lobby && this.phase === 'wait') p.ready = !!m.on;
         break;
       }
+      case 'sb': if (this.mode === 'sandbox') this.sandbox(p, m); break;
+      case 'opt': if (this.mode === 'sandbox') p.opt = { god: !!m.god, infN: !!m.infN }; break;
       case 'lmap': {   // l'hôte choisit la carte
-        if (this.lobby && this.phase === 'wait' && p.id === this.host && typeof m.map === 'string' && MAPS[m.map] && this.map !== MAPS[m.map]) {
+        if (this.lobby && this.phase === 'wait' && p.id === this.host && typeof m.map === 'string' && MAPS[m.map] && !MAPS[m.map].practice && this.map !== MAPS[m.map]) {
           this.map = MAPS[m.map]; this.hidden = new Set(); this.all().forEach((q) => { q.ready = false; });
           this.msg('Carte : ' + this.map.name, 'info');
         }
@@ -897,20 +1127,22 @@ class Room {
     p.am[id] = [Math.max(0, Math.min(w.mag, num(am[0]) | 0)), Math.max(0, Math.min(w.res, num(am[1]) | 0))];
   }
 
-  addPlayer(ws, name, want) {
+  addPlayer(ws, name, want, acc) {
     const id = this.nextId++;
     const p = {
       id, ws, name, team: null, pending: null, alive: false, hp: 100, armor: 0, kit: false, money: CFG.startMoney,
       helmet: false, inv: { primary: null, secondary: 'glock', cur: 'glock' }, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0,
       k: 0, d: 0, ac: 0, mv: 0, rk: 0, survived: false, act: null, pg: 0, lastSt: 0, lastHit: new Map(), lastChat: 0, lastThrow: 0, alive_ws: true, rl: 0, am: {}, bought: {}, g: { flash: 0, smoke: 0, he: 0, molo: 0 }
     };
-    p.ready = false;
+    p.ready = false; p.opt = { god: false, infN: false }; p.acc = acc ? acc.key : null; p.lv = acc ? acc.lv : 0;
     this.players.set(id, p);
     if (this.lobby && !this.host) this.host = id;
     p.team = this.chooseTeam(p, want);
     this.resetLoadout(p, true);
+    // entraînement : on apparaît tout de suite, argent illimité
+    if (this.practice && this.phase === 'live') { p.money = CFG.maxMoney; this.spawnPlayer(p, this.spawnN++); this.started[p.team]++; }
     // arrivée en cours de phase d'achat : on le fait apparaître directement
-    if (this.phase === 'freeze') {
+    else if (this.phase === 'freeze') {
       this.spawnPlayer(p, this.team(p.team).length);
       this.started[p.team]++;
     }
@@ -941,12 +1173,17 @@ wss.on('connection', (ws) => {
       if (m.type !== 'join') return;
       const rn = String(m.room || 'main').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16) || 'main';
       let r = rooms.get(rn);
-      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : '', m.mode); r.lobby = m.lobby === 1 || m.lobby === true; rooms.set(rn, r); }
+      if (!r) { r = new Room(rn, typeof m.map === 'string' ? m.map : '', m.mode); r.lobby = !r.practice && (m.lobby === 1 || m.lobby === true); rooms.set(rn, r); }
       if (r.players.size >= CFG.maxPlayers) { send(ws, { type: 'err', text: 'Salle pleine (' + CFG.maxPlayers + ' joueurs max)' }); return; }
-      const name = String(m.name || 'Joueur').replace(/[\u0000-\u001f<>]/g, '').slice(0, 16).trim() || 'Joueur';
+      // compte connecté : son pseudo fait foi ; un invité ne peut pas prendre le pseudo d'un compte
+      const u = Acc.byTok(m.tok);
+      let name = String(m.name || 'Joueur').replace(/[\u0000-\u001f<>]/g, '').slice(0, 16).trim() || 'Joueur';
+      let acc = null;
+      if (u) { name = u.name; acc = { key: Acc.keyOf(u), lv: Acc.level(Acc.keyOf(u)) }; }
+      else if (Acc.exists(name)) name = name.slice(0, 15) + '*';
       room = r;
-      me = r.addPlayer(ws, name, m.team);
-      send(ws, { type: 'welcome', id: me.id, room: rn, map: r.map.id, cfg: { maxRounds: CFG.maxRounds } });
+      me = r.addPlayer(ws, name, m.team, acc);
+      send(ws, { type: 'welcome', id: me.id, room: rn, map: r.map.id, pm: r.practice ? r.mode : '', name, acc: acc ? 1 : 0, cfg: { maxRounds: CFG.maxRounds } });
       r.msg(name + ' a rejoint la partie', 'info');
       return;
     }
