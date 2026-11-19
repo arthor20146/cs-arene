@@ -30,22 +30,60 @@ const Acc = (function () {
   const FILE = path.join(DATA_DIR, 'accounts.json');
   let db = { v: 1, users: {} }, dirty = false, writing = false;
   const tokens = new Map();                      // jeton -> clé du compte (pseudo en minuscules)
+  // Base de données Supabase (gratuite) si SUPABASE_URL et SUPABASE_KEY sont définis : les comptes survivent
+  // aux redémarrages de l'hébergeur. Sinon : fichier DATA_DIR/accounts.json.
+  const SB_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, ''), SB_KEY = process.env.SUPABASE_KEY || '';
+  const useDb = !!(SB_URL && SB_KEY);
+  // ancienne clé service_role (JWT « eyJ… ») : aussi dans Authorization ; nouvelle clé secrète « sb_secret_… » : apikey seulement
+  const SB_H = Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, SB_KEY.startsWith('eyJ') ? { Authorization: 'Bearer ' + SB_KEY } : {});
+  let loaded = !useDb;                           // tant que la base n'est pas lue, on n'écrit rien (pour ne pas l'effacer)
+  const index = () => { tokens.clear(); Object.keys(db.users).forEach((k) => (db.users[k].tokens || []).forEach((t) => tokens.set(t.t, k))); };
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
-  try { const raw = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (raw && raw.users) db = raw; } catch (e) {}
-  Object.keys(db.users).forEach((k) => (db.users[k].tokens || []).forEach((t) => tokens.set(t.t, k)));
-  console.log('Comptes : ' + Object.keys(db.users).length + ' (fichier ' + FILE + ')');
+  if (!useDb) {
+    try { const raw = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (raw && raw.users) db = raw; } catch (e) {}
+    index();
+    console.log('Comptes : ' + Object.keys(db.users).length + ' (fichier ' + FILE + ')');
+  }
+  async function loadDb() {
+    try {
+      const r = await fetch(SB_URL + '/rest/v1/cs_store?id=eq.accounts&select=data', { headers: SB_H, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
+      const rows = await r.json();
+      if (rows.length && rows[0].data && rows[0].data.users) {
+        // fusion : un compte créé pendant le chargement n'est pas perdu
+        const cur = db.users; db = rows[0].data; Object.keys(cur).forEach((k) => { if (!db.users[k]) db.users[k] = cur[k]; });
+      }
+      index(); loaded = true;
+      console.log('Comptes : ' + Object.keys(db.users).length + ' (base de données Supabase)');
+    } catch (e) {
+      console.error('Lecture de la base de données impossible (nouvel essai dans 10 s) :', e.message);
+      setTimeout(loadDb, 10000);
+    }
+  }
+  const ready = useDb ? Promise.race([loadDb(), new Promise((res) => setTimeout(res, 20000))]) : Promise.resolve();
 
-  // écriture différée et atomique (fichier temporaire puis renommage)
+  // écriture différée : base de données (upsert d'une ligne) ou fichier (temporaire puis renommage)
   const save = () => { dirty = true; };
-  setInterval(() => {
-    if (!dirty || writing) return;
+  async function flush() {
+    if (!dirty || writing || !loaded) return;
     dirty = false; writing = true;
-    const tmp = FILE + '.tmp';
-    fs.writeFile(tmp, JSON.stringify(db), (err) => {
-      if (err) { writing = false; dirty = true; console.error('Sauvegarde des comptes impossible :', err.message); return; }
-      fs.rename(tmp, FILE, (e2) => { writing = false; if (e2) { dirty = true; console.error('Sauvegarde des comptes impossible :', e2.message); } });
-    });
-  }, 2500).unref();
+    const body = JSON.stringify(db);
+    try {
+      if (useDb) {
+        const r = await fetch(SB_URL + '/rest/v1/cs_store', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, SB_H),
+          body: '[{"id":"accounts","data":' + body + ',"updated_at":"' + new Date().toISOString() + '"}]', signal: AbortSignal.timeout(20000) });
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
+      }
+      // copie locale (aussi utile en secours avec la base de données)
+      await fs.promises.writeFile(FILE + '.tmp', body); await fs.promises.rename(FILE + '.tmp', FILE);
+    } catch (e) { dirty = true; console.error('Sauvegarde des comptes impossible :', e.message); }
+    writing = false;
+  }
+  setInterval(flush, 2500).unref();
+  // l'hébergeur arrête le serveur (mise en veille, redéploiement) : on enregistre avant de quitter
+  let quitting = false;
+  const bye = async () => { if (quitting) return; quitting = true; for (let i = 0; i < 20 && writing; i++) await new Promise((r) => setTimeout(r, 250)); await flush(); process.exit(0); };
+  process.on('SIGTERM', bye); process.on('SIGINT', bye);
 
   const STAT0 = () => ({ kills: 0, deaths: 0, hs: 0, rounds: 0, roundWins: 0, matches: 0, matchWins: 0, mvp: 0, aces: 0, range: 0 });
   const xpOf = (s) => s.kills * 10 + s.hs * 2 + s.roundWins * 20 + s.matches * 40 + s.matchWins * 100 + s.mvp * 25 + s.aces * 150 + s.range * 15;
@@ -184,6 +222,7 @@ const Acc = (function () {
   const SLOW = { ok: false, err: 'Trop d\'essais : réessaie dans une minute', code: 429 };
 
   async function route(r, m, ip) {
+    if (!loaded) return { ok: false, err: 'Le serveur démarre, réessaie dans quelques secondes', code: 503 };
     switch (r) {
       case 'register': return limited('r' + ip, 6) ? SLOW : register(m.name, m.pass);
       case 'login': return limited('l' + ip, 12) ? SLOW : login(m.name, m.pass);
@@ -196,7 +235,7 @@ const Acc = (function () {
     }
     return { ok: false, err: 'Introuvable', code: 404 };
   }
-  return { route, byTok, keyOf, stat, level, pass, mastery, eqOf, onEquip: (f) => eqListeners.push(f), exists: (n) => !!db.users[String(n).toLowerCase()] };
+  return { ready, route, byTok, keyOf, stat, level, pass, mastery, eqOf, onEquip: (f) => eqListeners.push(f), exists: (n) => !!db.users[String(n).toLowerCase()] };
 })();
 
 function json(res, code, o) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); }
@@ -1268,4 +1307,4 @@ setInterval(() => {
   });
 }, 25000);
 
-server.listen(PORT, '0.0.0.0', () => console.log('CS Arena en ligne sur le port ' + PORT));
+Acc.ready.then(() => server.listen(PORT, '0.0.0.0', () => console.log('CS Arena en ligne sur le port ' + PORT)));

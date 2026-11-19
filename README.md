@@ -232,3 +232,7 @@ Dockerfile     déploiement Fly.io / Docker (range les fichiers client dans /app
 ## Pistes d'amélioration
 
 Bots, plus de cartes, déplacement validé côté serveur.
+
+## Comptes joueurs
+
+Pour que les comptes survivent aux redémarrages de Render, branche une base de données Supabase gratuite : voir **SUPABASE.md**.
