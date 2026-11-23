@@ -24,6 +24,7 @@
     radius: 0.4,
     armorBody: 0.7,      // multiplicateur de dégâts corps si gilet
     armorHead: 0.85,     // multiplicateur de dégâts tête si casque
+    armorWear: 1.2,      // usure du gilet par point de dégât reçu sur le corps (> réduction : le gilet casse avant que la vie tombe à 0)
     penLoss: 0.6,        // dégâts conservés à chaque obstacle traversé
     tagTime: 0.45,       // s de ralentissement quand on est touché
     maxDrops: 24,        // armes au sol par salle
@@ -545,5 +546,13 @@
     return { tier: t, cur: t < PASS.tiers.length ? x : 0, need: t < PASS.tiers.length ? PASS.tiers[t].xp : 0 };
   }
 
-  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv };
+  // dégâts d'un coup sur une zone couverte par le gilet : d = dégâts bruts, armor = gilet restant, mult = part qui passe
+  // le gilet s'use de d × armorWear ; s'il n'en reste pas assez, seule la part qu'il couvre encore est réduite
+  function armorHit(d, armor, mult) {
+    if (armor <= 0 || d <= 0) return { d, armor: Math.max(0, armor) };
+    const wear = d * CFG.armorWear, f = Math.min(1, armor / wear);
+    return { d: d * f * mult + d * (1 - f), armor: Math.max(0, armor - wear * f) };
+  }
+
+  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv, armorHit };
 });

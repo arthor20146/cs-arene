@@ -998,7 +998,7 @@ function onMsg(m) {
       break;
     case 'shoot': onRemoteShot(m); break;
     case 'kill': onKill(m); break;
-    case 'hitc': if (m.kill && cfg.hitSound) Snd.kill(); break;
+    case 'hitc': if (m.kill && cfg.hitSound) Snd.kill(); if (m.ab && !m.kill) notice('Gilet adverse détruit', '#9cc4ff'); break;
     case 'bpx': bpXp(m.x); break;
     case 'bp': bpUnlock(m.t, m.sk); break;
     case 'ms': msUp(m.w, m.lv, m.sk); break;
@@ -1184,6 +1184,7 @@ function onKill(m) {
 }
 
 function onHurt(m) {
+  if (m.ab) { notice('TON GILET EST DÉTRUIT', '#ff7b6e'); Snd.impact('metal', 0.9, 0, {}); }
   if (m.fire) {   // brûlure : petit voile rouge, pas de direction
     Snd.hurt(0); const h = $('hurt'); h.style.transition = 'none'; h.style.opacity = '0.45'; hurtT = 0.5; P.shake = Math.max(P.shake, 0.1);
     return;
@@ -1314,13 +1315,13 @@ function calcDamage(w, dist, pen, z, armor, helmet) {
     const n = Math.min(left, z[k] | 0); if (!n) return;
     left -= n;
     let d = base * n * (k === 'h' ? w.hs : CS.ZONES[k]);
-    const cov = k === 'l' ? false : k === 'h' ? helmet : armor > 0;
     if (k === 'h' && !w.pellets) hs = true;
     if (!zone) zone = k;
-    if (cov) { let m = k === 'h' ? CFG.armorHead : CFG.armorBody; m = 1 - (1 - m) * (1 - w.ap); armored += d; d *= m; }
+    if (k === 'h' && helmet) { armored += d; d *= 1 - (1 - CFG.armorHead) * (1 - w.ap); }
+    else if (k !== 'h' && k !== 'l' && armor > 0) { armored += d; const r = CS.armorHit(d, armor, 1 - (1 - CFG.armorBody) * (1 - w.ap)); d = r.d; armor = r.armor; }
     dmg += d;
   });
-  return { dmg: Math.round(dmg), armored, hs, zone };
+  return { dmg: Math.round(dmg), armored, hs, zone, armor };
 }
 
 /* ---------- mannequins (zone de test) ---------- */
@@ -1370,11 +1371,13 @@ function clearDummies() { dummies.forEach((d) => { scene.remove(d.g); if (d.lbl)
 function hurtDummy(d, r, pt, wid, dist, pen) {
   if (d.hp <= 0 || r.dmg <= 0) return;
   const w = WEAPONS[wid] || {};
-  if (r.armored && d.armor > 0) d.armor = Math.max(0, d.armor - r.armored * 0.3 * (1 - (w.ap || 0) * 0.5));
+  const ar0 = d.armor;
+  if (r.armor != null) d.armor = r.armor;
   d.hp = Math.max(0, d.hp - r.dmg);
   if (PR.dmgNum && pt) popText(_i.copy(pt).setY(pt.y + 0.3), '-' + r.dmg + (r.hs ? ' TÊTE' : ''), r.hs ? '#ff5a4a' : r.armored ? '#9cc4ff' : '#ffffff', r.hs);
   PR.lastHit = (w.n || wid) + ' · ' + (ZONE_N[r.zone] || 'explosion') + ' · ' + dist.toFixed(1) + ' m' +
-    (pen ? ' · ' + pen + ' obstacle' + (pen > 1 ? 's traversés' : ' traversé') : '') + ' → ' + r.dmg + ' dégâts' + (r.armored ? ' (protégé)' : '');
+    (pen ? ' · ' + pen + ' obstacle' + (pen > 1 ? 's traversés' : ' traversé') : '') + ' → ' + r.dmg + ' dégâts' + (r.armored ? ' (protégé)' : '') +
+    (ar0 > 0 && d.armor <= 0 ? ' · GILET DÉTRUIT' : '');
   if (d.hp <= 0) {
     const dx = P.x - d.g.position.x, dz = P.z - d.g.position.z, y = d.g.rotation.y;
     d.rig.deadDir = -dx * Math.sin(y) - dz * Math.cos(y) >= 0 ? 1 : -1; d.rig.deadSide = (Math.random() - 0.5) * 0.6; d.rig.deadHs = !!r.hs; d.deadT = 0;
@@ -1392,9 +1395,8 @@ function heDummies(pos) {
     if (dist > CFG.heRadius) return;
     rc.set(pos, _v2.subVectors(c, pos).normalize()); rc.far = Math.max(0.01, dist - 0.3);
     if (rc.intersectObjects(worldMeshes, false).length) return;
-    let dmg = CFG.heDmg * Math.pow(1 - dist / CFG.heRadius, 1.25);
-    if (d.armor > 0) { dmg *= CFG.armorBody; d.armor = Math.max(0, d.armor - dmg * 0.4); }
-    hurtDummy(d, { dmg: Math.round(dmg), armored: 0, hs: false, zone: '' }, c, 'he', dist, 0);
+    const ah = CS.armorHit(CFG.heDmg * Math.pow(1 - dist / CFG.heRadius, 1.25), d.armor, CFG.armorBody);
+    hurtDummy(d, { dmg: Math.round(ah.d), armored: 0, hs: false, zone: '', armor: ah.armor }, c, 'he', dist, 0);
   });
 }
 function updateDummies(dt) {

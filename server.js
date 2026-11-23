@@ -7,7 +7,7 @@ const WebSocket = require('ws');
 // Docker : fichiers client dans ./public ; dépôt à plat (npm start en local) : à la racine
 const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
 const CS = require(path.join(PUB, 'shared.js'));
-const { CFG, ZONES, WEAPONS, GREN, MAPS, phaseBoxes, SKINS, PASS, passTier, MASTERY, masteryLv } = CS;
+const { CFG, ZONES, WEAPONS, GREN, MAPS, phaseBoxes, SKINS, PASS, passTier, MASTERY, masteryLv, armorHit } = CS;
 const GR = 0.11; // rayon d'une grenade (m)
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const shuffled = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -678,7 +678,8 @@ class Room {
     if (dist > w.range + 3) return;
     // zones touchées : { h: nb, c: nb, s: nb, a: nb, l: nb } (plombs ou balle unique)
     const z = m.z && typeof m.z === 'object' ? m.z : { c: 1 };
-    let left = w.pellets || 1, dmg = 0, armored = 0, hs = false;
+    let left = w.pellets || 1, dmg = 0, hs = false;
+    const ar0 = t.armor;
     const pen = Math.max(0, Math.min(3, num(m.p) | 0));
     const base = w.dmg * Math.pow(w.fall, dist / 25) * Math.pow(CFG.penLoss, pen);
     for (const k of ['h', 'c', 's', 'a', 'l']) {
@@ -686,22 +687,20 @@ class Room {
       if (!n) continue;
       left -= n;
       let d = base * n * (k === 'h' ? w.hs : ZONES[k]);
-      const covered = k === 'l' ? false : k === 'h' ? t.helmet : t.armor > 0;
       if (k === 'h') hs = hs || !w.pellets;
-      if (covered) {
-        let mult = k === 'h' ? CFG.armorHead : CFG.armorBody;
-        mult = 1 - (1 - mult) * (1 - w.ap);
-        armored += d;
-        d *= mult;
+      if (k === 'h' && t.helmet) d *= 1 - (1 - CFG.armorHead) * (1 - w.ap);   // casque
+      else if (k !== 'h' && k !== 'l') {                                      // gilet : il s'use et finit par casser
+        const r = armorHit(d, t.armor, 1 - (1 - CFG.armorBody) * (1 - w.ap));
+        d = r.d; t.armor = r.armor;
       }
       dmg += d;
     }
     if (dmg <= 0) return;
-    if (armored) t.armor = Math.max(0, t.armor - armored * 0.3 * (1 - w.ap * 0.5));
+    const broke = ar0 > 0 && t.armor <= 0 ? 1 : 0;   // le gilet vient de casser
     dmg = Math.round(dmg);
     if (!this.god(t)) t.hp -= dmg;
-    send(sh.ws, { type: 'hitc', hs: hs ? 1 : 0, kill: t.hp <= 0 ? 1 : 0 });
-    send(t.ws, { type: 'hurt', dx: r2(sh.x - t.x), dz: r2(sh.z - t.z), dmg, hs: hs ? 1 : 0 });
+    send(sh.ws, { type: 'hitc', hs: hs ? 1 : 0, kill: t.hp <= 0 ? 1 : 0, ab: broke });
+    send(t.ws, { type: 'hurt', dx: r2(sh.x - t.x), dz: r2(sh.z - t.z), dmg, hs: hs ? 1 : 0, ab: broke });
     if (t.hp <= 0) { this.killPlayer(t, sh, wid, hs); this.checkEnd(now); }
   }
 
@@ -919,11 +918,13 @@ class Room {
       if (d > R) return;
       if (this.segBlocked(g.x, Math.max(g.y, 0.2), g.z, t.x, cy, t.z)) return;
       let dmg = CFG.heDmg * Math.pow(1 - d / R, 1.25);
-      if (t.armor > 0) { dmg *= CFG.armorBody; t.armor = Math.max(0, t.armor - dmg * 0.4); }
-      dmg = Math.round(dmg);
+      const ar0 = t.armor, ah = armorHit(dmg, t.armor, CFG.armorBody);
+      dmg = Math.round(ah.d);
       if (dmg < 1) return;
+      t.armor = ah.armor;
+      const broke = ar0 > 0 && t.armor <= 0 ? 1 : 0;
       if (!this.god(t)) t.hp -= dmg;
-      send(t.ws, { type: 'hurt', dx: r2(g.x - t.x), dz: r2(g.z - t.z), dmg, hs: 0 });
+      send(t.ws, { type: 'hurt', dx: r2(g.x - t.x), dz: r2(g.z - t.z), dmg, hs: 0, ab: broke });
       if (owner && owner !== t) send(owner.ws, { type: 'hitc', hs: 0, kill: t.hp <= 0 ? 1 : 0 });
       if (t.hp <= 0) this.killPlayer(t, owner, 'he', false);
     });
