@@ -598,7 +598,8 @@ function exposed(M, b) {
 
 function buildWorld(M, force) {
   if (cur.group && cur.map === M && !force) return cur.rays;
-  if (cur.mid !== M.id) { setSky(M.id); cur.mid = M.id; }
+  const skyId = M.sky || M.id;   // carte perso : ciel choisi dans l'éditeur
+  if (cur.mid !== skyId) { setSky(skyId); cur.mid = skyId; }
   const style = M.style || M.id;
   if (cur.group) {
     scene.remove(cur.group);

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CS Arena · Éditeur de cartes</title>
+<style>
+:root{--t:#e0a040;--ct:#5aa0ff;--ok:#8ccf4d;--bad:#e5483f;--warn:#ffb23c;--panel:#12161a;--panel2:#0b0e11;--line:#2c353d;--txt:#eef2f5;--dim:#8f9ca7;--sel:#4fe3ff;--font:'Trebuchet MS','Segoe UI',Tahoma,sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#07090b;color:var(--txt);font-family:var(--font);font-size:14px}
+button{font-family:inherit;cursor:pointer;color:var(--txt)}
+input,select{font-family:inherit;font-size:14px}
+.hide{display:none!important}
+#app{display:grid;grid-template-columns:62px 1fr 300px;grid-template-rows:48px 1fr 26px;height:100%}
+/* barre du haut */
+#top{grid-column:1/4;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+#top .brand{font-weight:bold;letter-spacing:1px;margin-right:8px;white-space:nowrap}
+#top .brand span{background:var(--t);color:#16100a;padding:2px 6px;margin-right:6px}
+#top input#mname{width:190px;padding:6px 8px;background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
+#top input#mname:focus{outline:none;border-color:var(--t)}
+.tb{padding:7px 11px;background:#1d242a;border:1px solid var(--line);font-size:13px;white-space:nowrap}
+.tb:hover{background:#27313a}
+.tb.pri{background:var(--t);border-color:var(--t);color:#16100a;font-weight:bold}
+.tb.pri:hover{filter:brightness(1.1)}
+.tb.on{border-color:var(--sel);color:var(--sel)}
+.tb:disabled{opacity:.4;cursor:default}
+.grow{flex:1}
+#saved{color:var(--dim);font-size:12px;white-space:nowrap}
+/* outils */
+#tools{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;overflow-y:auto}
+#tools button{width:50px;height:46px;background:transparent;border:1px solid transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:0;position:relative}
+#tools button:hover{background:#1d242a}
+#tools button.on{background:#1d2a33;border-color:var(--sel)}
+#tools button i{font-style:normal;width:20px;height:14px;display:block}
+#tools button small{font-size:9px;color:var(--dim);letter-spacing:.3px}
+#tools button kbd{position:absolute;top:1px;right:3px;font-size:9px;color:#5d6a75;font-family:inherit}
+#tools hr{width:40px;border:0;border-top:1px solid var(--line);margin:3px 0}
+/* zone de dessin */
+#stage{position:relative;overflow:hidden;background:#0d1013}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hint{position:absolute;left:10px;top:10px;background:rgba(10,12,14,.82);border:1px solid var(--line);padding:6px 10px;font-size:12px;color:var(--dim);pointer-events:none;max-width:70%}
+#hint b{color:var(--txt);font-weight:normal}
+#zoomb{position:absolute;right:10px;bottom:10px;display:flex;gap:4px}
+#zoomb button{width:32px;height:32px;background:rgba(18,22,26,.9);border:1px solid var(--line);font-size:16px}
+#layers{position:absolute;left:10px;bottom:10px;display:flex;gap:4px}
+#layers button{padding:6px 9px;background:rgba(18,22,26,.9);border:1px solid var(--line);font-size:12px}
+#layers button.on{border-color:var(--ok);color:var(--ok)}
+/* panneau de droite */
+#side{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:0 0 20px}
+.sec{padding:12px 14px 4px;font-size:11px;letter-spacing:1px;color:var(--dim);display:flex;align-items:center;gap:8px}
+.sec:before{content:"";width:3px;height:12px;background:var(--t)}
+.pane{padding:4px 14px 6px}
+.row{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:6px;margin:5px 0}
+.row label{color:var(--dim);font-size:12px}
+.row input[type=number],.row input[type=text],.row select{width:100%;padding:5px 7px;background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
+.row input:focus,.row select:focus{outline:none;border-color:var(--t)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.row2 .row{grid-template-columns:1fr;gap:3px;margin:4px 0}
+.btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.btns button{padding:6px 9px;background:#1d242a;border:1px solid var(--line);font-size:12px}
+.btns button:hover{background:#27313a}
+.btns button.danger:hover{border-color:var(--bad);color:var(--bad)}
+.btns button.on{border-color:var(--sel);color:var(--sel)}
+.sw{display:flex;gap:4px;flex-wrap:wrap}
+.sw button{width:26px;height:22px;border:2px solid transparent;padding:0}
+.sw button.on{border-color:#fff}
+.muted{color:var(--dim);font-size:12px;line-height:1.45}
+#issues div{display:flex;gap:7px;padding:6px 8px;margin:4px 0;background:var(--panel2);border-left:3px solid var(--dim);font-size:12px;line-height:1.35;cursor:pointer}
+#issues div.err{border-left-color:var(--bad)}
+#issues div.warn{border-left-color:var(--warn)}
+#issues div.ok{border-left-color:var(--ok);cursor:default}
+#issues div:hover{background:#151b20}
+#issues b{flex:0 0 auto}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px}
+.stat div{background:var(--panel2);padding:6px;text-align:center}
+.stat b{display:block;font-size:16px}
+.stat small{color:var(--dim);font-size:10px}
+/* barre du bas */
+#status{grid-column:1/4;display:flex;gap:18px;align-items:center;padding:0 10px;background:var(--panel);border-top:1px solid var(--line);font-size:12px;color:var(--dim)}
+#status b{color:var(--txt);font-weight:normal}
+/* fenêtres */
+.ov{position:fixed;inset:0;background:rgba(4,6,8,.78);display:flex;align-items:center;justify-content:center;z-index:50}
+.card{width:min(760px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--t);padding:18px 22px}
+.card h2{margin:0 0 12px;font-size:22px;display:flex;align-items:center}
+.card h2 .x{margin-left:auto;background:none;border:0;font-size:20px;color:var(--dim)}
+.card h3{font-size:12px;letter-spacing:1px;color:var(--dim);margin:16px 0 8px;font-weight:normal}
+.mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.mitem{background:var(--panel2);border:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:6px}
+.mitem canvas{width:100%;aspect-ratio:1;background:#0d1013;display:block;cursor:pointer}
+.mitem b{font-size:13px}
+.mitem small{color:var(--dim);font-size:11px}
+.mitem .btns{margin-top:0}
+.mitem .btns button{padding:4px 7px;font-size:11px}
+textarea{width:100%;height:300px;background:var(--panel2);color:#cfe3d0;border:1px solid var(--line);font-family:Consolas,monospace;font-size:12px;padding:8px}
+.link{display:flex;gap:6px}
+.link input{flex:1;padding:8px;background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
+#toast{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#1b2a1e;border:1px solid var(--ok);color:#dff5d0;padding:9px 16px;z-index:80;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.on{opacity:1}
+#toast.bad{background:#2c1716;border-color:var(--bad);color:#ffd9d5}
+/* vue 3D */
+#v3{position:fixed;inset:0;z-index:40;background:#000}
+#v3 canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#v3hud{position:absolute;left:14px;top:14px;background:rgba(10,12,14,.8);border:1px solid var(--line);padding:9px 13px;font-size:13px;line-height:1.6;color:var(--dim)}
+#v3hud b{color:var(--txt);font-weight:normal;background:#222b33;border:1px solid var(--line);padding:0 5px}
+#v3btns{position:absolute;right:14px;top:14px;display:flex;gap:6px}
+#v3load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--dim)}
+#v3cross{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:#fff;opacity:.7}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div class="brand"><span>CS</span>ÉDITEUR DE CARTES</div>
+    <input type="text" id="mname" maxlength="24" placeholder="Nom de la carte" title="Nom de la carte">
+    <button class="tb" id="bNew" title="Nouvelle carte vide">Nouvelle</button>
+    <button class="tb" id="bOpen" title="Mes cartes, cartes du jeu, importer un fichier">Ouvrir…</button>
+    <button class="tb" id="bSave" title="Enregistrer dans ce navigateur (Ctrl+S)">Enregistrer</button>
+    <button class="tb" id="bExport" title="Télécharger le fichier de la carte pour l'ajouter au jeu">Exporter…</button>
+    <span id="saved"></span>
+    <span class="grow"></span>
+    <button class="tb" id="bUndo" title="Annuler (Ctrl+Z)">↶</button>
+    <button class="tb" id="bRedo" title="Rétablir (Ctrl+Y)">↷</button>
+    <button class="tb" id="b3d" title="Se promener dans la carte avec le rendu du jeu">Vue 3D</button>
+    <button class="tb" id="bShare" title="Envoyer la carte au serveur et obtenir un lien à donner à tes amis">Partager</button>
+    <button class="tb pri" id="bTest" title="Lancer la carte en zone de test (invincible, mannequins, toutes les armes)">▶ Tester</button>
+    <button class="tb" id="bPlay" title="Revenir au menu du jeu avec cette carte choisie">Jouer dessus</button>
+    <button class="tb" id="bBack" title="Retour au menu du jeu">Menu du jeu</button>
+  </div>
+  <div id="tools"></div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint"></div>
+    <div id="layers">
+      <button id="lReach" title="Zones où l'on peut marcher depuis le départ T (vert) et le départ CT (bleu)">Zones accessibles</button>
+      <button id="lLabels" class="on" title="Hauteurs écrites sur les blocs">Hauteurs</button>
+      <button id="lSnap" title="Pas de la grille magnétique">Grille : 0,5 m</button>
+    </div>
+    <div id="zoomb"><button id="zIn" title="Zoomer">+</button><button id="zOut" title="Dézoomer">−</button><button id="zFit" title="Voir toute la carte (Origine)">⤢</button></div>
+  </div>
+  <div id="side">
+    <div class="sec" id="selTitle">SÉLECTION</div>
+    <div class="pane" id="props"></div>
+    <div class="sec">CARTE</div>
+    <div class="pane" id="mapPane">
+      <div class="row"><label>Décor</label><select id="mStyle"><option value="dust">Désert (sable, crépi)</option><option value="docks">Industriel (béton, tôle)</option></select></div>
+      <div class="row"><label>Ciel</label><select id="mSky"><option value="dust">Plein soleil</option><option value="medina">Fin d'après-midi</option><option value="docks">Nuageux</option><option value="cargo">Ciel bas, brumeux</option><option value="labo">Clair, peu de brume</option></select></div>
+      <div class="row"><label>Sous-titre</label><input type="text" id="mDesc" maxlength="40" placeholder="Ex. : Ruines · deux étages"></div>
+      <div class="row"><label>Couleur menu</label><input type="color" id="mCol" value="#c99bff" style="width:100%;height:28px;padding:0;border:1px solid var(--line);background:var(--panel2)"></div>
+      <div class="stat" id="mStats"></div>
+    </div>
+    <div class="sec">VÉRIFICATION</div>
+    <div class="pane" id="issues"></div>
+    <div class="sec">AIDE</div>
+    <div class="pane muted" id="help">
+      Clic droit ou molette enfoncée + glisser : se déplacer · molette : zoom.<br>
+      Sélection : clic, Maj+clic pour en ajouter, glisser dans le vide pour encadrer. Poignées pour redimensionner.<br>
+      <b>Suppr</b> effacer · <b>Ctrl+D</b> dupliquer · <b>Ctrl+C / Ctrl+V</b> copier-coller · <b>R</b> pivoter ·
+      <b>flèches</b> décaler (Maj : ×5) · <b>Page ↑ / ↓</b> hauteur · <b>Ctrl+Z / Ctrl+Y</b> annuler / rétablir · <b>Échap</b> désélectionner.<br>
+      La carte fait 80 × 80 m. Les T partent en bas (sud), les CT en haut (nord). On monte sans sauter jusqu'à 0,5 m, en sautant jusqu'à environ 1,5 m.
+    </div>
+  </div>
+  <div id="status"><span>Position <b id="sPos">—</b></span><span>Outil <b id="sTool">—</b></span><span id="sSel"></span><span class="grow"></span><span id="sZoom"></span></div>
+</div>
+
+<!-- Ouvrir -->
+<div class="ov hide" id="dOpen"><div class="card">
+  <h2>Ouvrir une carte <button class="x" data-close>✕</button></h2>
+  <h3>MES CARTES (ENREGISTRÉES DANS CE NAVIGATEUR)</h3>
+  <div class="mlist" id="oMine"></div>
+  <h3>PARTIR D'UNE CARTE DU JEU</h3>
+  <div class="mlist" id="oGame"></div>
+  <h3>CARTES PARTAGÉES SUR LE SERVEUR</h3>
+  <div class="mlist" id="oServer"><span class="muted">Chargement…</span></div>
+  <h3>FICHIER</h3>
+  <div class="btns"><button id="oImport">Importer un fichier .json…</button><input type="file" id="oFile" accept=".json,application/json" class="hide"></div>
+</div></div>
+
+<!-- Exporter -->
+<div class="ov hide" id="dExport"><div class="card">
+  <h2>Ajouter la carte au jeu <button class="x" data-close>✕</button></h2>
+  <p class="muted">Télécharge le fichier <b id="eFile"></b> et donne-le à Claude : il ajoute la carte au jeu pour tout le monde,
+    avec son bouton dans le menu (nom, sous-titre et couleur choisis dans le panneau CARTE).</p>
+  <div class="btns"><button class="tb pri" id="eJson" style="font-size:15px;padding:10px 16px">⬇ Télécharger le fichier de la carte</button></div>
+  <p class="muted" id="eWarn" style="color:var(--warn)"></p>
+  <h3>OU À LA MAIN</h3>
+  <p class="muted">Colle cette ligne dans <b>shared.js</b>, sous <code>// ---------- Cartes ajoutées depuis l'éditeur</code>. Le bouton du menu apparaît tout seul.</p>
+  <div class="btns"><button id="eCopy">Copier la ligne</button></div>
+  <textarea id="eCode" readonly spellcheck="false" style="height:140px"></textarea>
+</div></div>
+
+<!-- Partager -->
+<div class="ov hide" id="dShare"><div class="card">
+  <h2>Partager la carte <button class="x" data-close>✕</button></h2>
+  <p class="muted">La carte est enregistrée sur le serveur du jeu. Donne ce lien à tes amis : il ouvre le jeu avec ta carte, dans une salle à vous.</p>
+  <div class="link"><input type="text" id="shLink" readonly><button class="tb pri" id="shCopy">Copier</button></div>
+  <p class="muted">Code de la carte : <b id="shId"></b> · Salle : <b id="shRoom"></b></p>
+</div></div>
+
+<!-- Vue 3D -->
+<div id="v3" class="hide">
+  <canvas id="v3c"></canvas>
+  <div id="v3cross"></div>
+  <div id="v3load">Construction du décor…</div>
+  <div id="v3hud">Clic : capturer la souris · <b>Z Q S D</b> / <b>W A S D</b> se déplacer · <b>Espace</b> monter · <b>C</b> descendre · <b>Maj</b> lentement<br>
+    <b>G</b> marcher au sol / voler : <span id="v3mode">vol</span> · <b>Échap</b> libérer la souris</div>
+  <div id="v3btns"><button class="tb" id="v3T">Départ T</button><button class="tb" id="v3CT">Départ CT</button><button class="tb" id="v3Top">Vue d'en haut</button><button class="tb pri" id="v3Close">Retour à l'éditeur</button></div>
+</div>
+
+<div id="toast"></div>
+<!-- accès réservé -->
+<div class="ov hide" id="lock" style="z-index:90;background:#07090b"><div class="card" style="text-align:center;width:min(460px,94vw)">
+  <h2 style="justify-content:center">Accès réservé</h2>
+  <p class="muted" id="lockMsg">L'éditeur de cartes est réservé au compte administrateur. Connecte-toi avec ce compte depuis le menu du jeu (bouton COMPTE), puis reviens ici.</p>
+  <div class="btns" style="justify-content:center"><button class="tb pri" onclick="location.href='index.html'">Retour au jeu</button></div>
+</div></div>
+
+<script src="three.min.js"></script>
+<script src="shared.js"></script>
+<script src="gfx.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>

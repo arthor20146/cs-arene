@@ -125,6 +125,18 @@ Les réglages sont lus dans `settings.js` (`Settings.cfg`, `Settings.binds`) ; `
 
 Côté code : `phaseBoxes(map)` (`shared.js`) donne la liste des obstacles qui peuvent disparaître, la même pour le serveur et les clients. `gfx.js` construit chacun à part (`setHidden`), et `server.js` tire le programme de chaque manche (`planChaos`) puis les événements (`chaos`). Le snapshot envoie `md` (mode), `hb` (murs cachés), `jm` (arme bloquée), `iv` (commandes inversées) et `hf` (mi-temps passée). Après une permutation, le client renvoie `tp` dans `st` pour que le serveur ignore les positions envoyées avant la téléportation.
 
+## Éditeur de cartes
+
+Page `editor.html` (bouton **ÉDITEUR DE CARTES** du menu). **Réservé au compte `faze`** : le serveur refuse d'enregistrer une carte pour tout autre compte, et le bouton n'apparaît pas pour les autres joueurs. Pour changer les comptes autorisés : variable d'environnement `MAP_EDITORS=faze,autre`.
+
+- Vue de dessus de la carte (80 × 80 m, T en bas, CT en haut) avec grille magnétique. Outils : mur, muret, caisse, grande caisse, conteneur (couleur, 1 à 3 étages), fût, terrasse, escalier, toit / passage couvert, sites A et B, départs T et CT, flèches au sol, gomme.
+- Sélection multiple, poignées, Ctrl+Z / Ctrl+Y, copier-coller, miroir, « Symétriser gauche → droite ».
+- **Vérification** en direct : sites, départs dans un mur, site ou départ CT inaccessible depuis le départ T, départs qui se voient. Calque « Zones accessibles ».
+- **Vue 3D** avec le rendu du jeu (vol libre ou à pied), **Tester** (zone de test), **Jouer dessus** (menu avec la carte choisie), **Partager** (lien `?cmap=…&room=…` pour les amis, qui n'ont pas besoin de l'éditeur).
+- **Ajouter une carte au jeu pour de bon** : **Exporter…** → *Télécharger le fichier de la carte* (`carte-<nom>.json`). Ce fichier se donne à Claude, qui l'ajoute dans `shared.js` (une ligne `addEditorMap(...)` sous « Cartes ajoutées depuis l'éditeur »). Le bouton du menu apparaît tout seul, avec le nom, le sous-titre et la couleur choisis dans le panneau CARTE.
+- Mes cartes : dans le navigateur. Cartes envoyées : `DATA_DIR/maps.json` et la base Supabase (ligne `maps`) si elle est configurée. Exporter : fichier `.json`, ou code à coller dans `shared.js` pour ajouter la carte au jeu pour de bon.
+- Côté code : `sanitizeMap` / `buildCustom` (`shared.js`), routes `/maps/save`, `/maps/get`, `/maps/list`, `/maps/can` (`server.js`).
+
 ## Cartes
 
 - **Dust** : désert, deux sites séparés par une ligne de murs à 3 portes.

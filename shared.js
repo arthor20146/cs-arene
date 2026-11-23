@@ -438,6 +438,86 @@
   MAPS.medina.boxes = ENCLOSURE.concat(fromGrid(MAPS.medina.grid, 6, 2.6), MAPS.medina.extra);
   MAPS.dust.style = 'dust'; MAPS.docks.style = 'docks';
 
+  /* ---------- Cartes perso (éditeur de cartes) ----------
+     Format source (JSON, celui de l'éditeur) :
+       { v: 1, name, style: 'dust' | 'docks', sky: 'dust' | 'medina' | 'docks' | 'cargo' | 'labo',
+         boxes: [{ x, z, w, d, h, t, c }], stairs: [{ x, z, w, dir: 'n'|'s'|'e'|'w', n }],
+         arches: [[x, z, w, d, bas, épaisseur]], marks: [[x, z, dx, dz, 'A']],
+         sites: { A: { x, z, r }, B: {...} }, spawns: { T: [{ x, z, yaw? }], CT: [...] } }
+     sanitizeMap nettoie (le serveur et le jeu obtiennent exactement la même carte), buildCustom fabrique la carte jouable. */
+  const MAP_T = { w: 1, cont: 1, barrel: 1 };
+  const MAP_SKY = ['dust', 'medina', 'docks', 'cargo', 'labo'];
+  const MAP_DIR = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
+  function sanitizeMap(src) {
+    src = src && typeof src === 'object' ? src : {};
+    const n = (v, a, b, d) => { v = +v; if (!isFinite(v)) v = d; return Math.max(a, Math.min(b, Math.round(v * 100) / 100)); };
+    const arr = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []).filter((o) => o && typeof o === 'object');
+    const style = src.style === 'docks' ? 'docks' : 'dust';
+    const out = {
+      v: 1, name: String(src.name || 'Ma carte').replace(/[\u0000-\u001f<>"]/g, '').trim().slice(0, 24) || 'Ma carte',
+      style, sky: MAP_SKY.indexOf(src.sky) >= 0 ? src.sky : style,
+      desc: String(src.desc || '').replace(/[\u0000-\u001f<>"]/g, '').trim().slice(0, 40),
+      col: /^#[0-9a-f]{6}$/i.test(src.col || '') ? src.col.toLowerCase() : '#c99bff',
+      boxes: arr(src.boxes, 800).map((b) => {
+        const t = MAP_T[b.t] ? b.t : '';
+        const o = { x: n(b.x, -40, 40, 0), z: n(b.z, -40, 40, 0), w: n(b.w, 0.2, 80, 2), d: n(b.d, 0.2, 80, 2), h: n(b.h, 0.2, 20, 2) };
+        if (t) o.t = t;
+        if (t === 'barrel') { o.w = o.d = 0.8; o.h = 1.1; }
+        if (t === 'cont') o.c = n(b.c, 0, 0xffffff, 0xb5432f) | 0;
+        return o;
+      }),
+      stairs: arr(src.stairs, 40).filter((s) => MAP_DIR[s.dir]).map((s) => ({ x: n(s.x, -40, 40, 0), z: n(s.z, -40, 40, 0), w: n(s.w, 0.6, 12, 3), dir: s.dir, n: n(s.n, 1, 16, 4) | 0 })),
+      arches: arr(src.arches, 40).filter(Array.isArray).map((a) => [n(a[0], -40, 40, 0), n(a[1], -40, 40, 0), n(a[2], 0.4, 40, 4), n(a[3], 0.4, 40, 2), n(a[4], 1.5, 12, 3.2), n(a[5], 0.2, 4, 0.8)]),
+      marks: arr(src.marks, 60).filter(Array.isArray).map((m) => { const l = Math.hypot(+m[2] || 0, +m[3] || 0) || 1; return [n(m[0], -40, 40, 0), n(m[1], -40, 40, 0), n((+m[2] || 0) / l, -1, 1, 1), n((+m[3] || 0) / l, -1, 1, 0), m[4] === 'B' ? 'B' : 'A']; }),
+      sites: {}, spawns: { T: [], CT: [] }
+    };
+    ['A', 'B'].forEach((k) => { const s = src.sites && src.sites[k]; if (s && typeof s === 'object') out.sites[k] = { x: n(s.x, -40, 40, 0), z: n(s.z, -40, 40, 0), r: n(s.r, 2, 12, 6.5) }; });
+    ['T', 'CT'].forEach((t) => {
+      out.spawns[t] = arr(src.spawns && src.spawns[t], 10).map((p) => {
+        const o = { x: n(p.x, -39.5, 39.5, 0), z: n(p.z, -39.5, 39.5, 0) };
+        if (p.yaw != null && isFinite(+p.yaw)) o.yaw = n(p.yaw, -7, 7, 0);
+        return o;
+      });
+    });
+    return out;
+  }
+  function buildCustom(src, id) {
+    const S = sanitizeMap(src);
+    const extra = [];
+    S.stairs.forEach((s) => { const d = MAP_DIR[s.dir]; extra.push.apply(extra, stairs(s.x, s.z, s.w, d[0], d[1], s.n)); });
+    const boxes = ENCLOSURE.concat(S.boxes.map((b) => B(b.x, b.z, b.w, b.d, b.h, b.t, b.c)), extra);
+    // départ posé sur une terrasse : on part à sa hauteur ; sans départ placé : départs habituels
+    const floorAt = (x, z) => { let y = 0; boxes.forEach((b) => { if ((b.t === 'w' || b.h <= 0.55) && b.h <= 6 && Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) y = Math.max(y, b.h); }); return y; };
+    const def = makeSpawns(), spawns = {};
+    ['T', 'CT'].forEach((t) => {
+      spawns[t] = S.spawns[t].length ? S.spawns[t].map((p) => ({ x: p.x, y: floorAt(p.x, p.z), z: p.z, yaw: p.yaw != null ? p.yaw : Math.atan2(p.x, p.z) })) : def[t];
+    });
+    const dust = S.style === 'dust';
+    return {
+      id, name: S.name, style: S.style, sky: S.sky, custom: 1,
+      theme: dust ? { sky: 0x9cc3e8, ground: '#c9b287', wall: '#b79c6c', crate: '#8a6335' } : { sky: 0xaebccb, ground: '#6e7277', wall: '#6f6a64', crate: '#7a5a34' },
+      boxes, sites: S.sites, spawns, arches: S.arches, marks: S.marks, signs: [], awnings: [], lines: [], stripes: [], rails: []
+    };
+  }
+  // l'inverse : une carte intégrée au format de l'éditeur (pour partir d'une carte existante)
+  function mapToSource(M) {
+    const enc = (b) => b.h >= 10 && (Math.abs(Math.abs(b.x) - 40.5) < 0.01 || Math.abs(Math.abs(b.z) - 40.5) < 0.01);
+    return sanitizeMap({
+      name: M.name + ' (copie)', style: (M.style || M.id) === 'dust' ? 'dust' : 'docks', sky: MAP_SKY.indexOf(M.id) >= 0 ? M.id : (M.style || 'dust'),
+      boxes: M.boxes.filter((b) => !enc(b)), arches: M.arches || [], marks: M.marks || [], sites: M.sites,
+      spawns: { T: M.spawns.T.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw })), CT: M.spawns.CT.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw })) }
+    });
+  }
+
+  // carte faite avec l'éditeur et ajoutée au jeu : elle a son bouton dans le menu (game.js) et passe partout comme une carte d'origine
+  function addEditorMap(id, src) {
+    const M = buildCustom(src, id), S = sanitizeMap(src);
+    delete M.custom; M.ed = { desc: S.desc || 'Carte de l\'éditeur', col: S.col };
+    MAPS[id] = M;
+  }
+  // ---------- Cartes ajoutées depuis l'éditeur (fichier .json donné par l'éditeur : une ligne par carte) ----------
+  // addEditorMap('id_de_la_carte', { ...contenu du fichier... });
+
   // Compatibilité : anciennes variables = carte Dust
   const BOXES = MAPS.dust.boxes, SITES = MAPS.dust.sites, SPAWNS = MAPS.dust.spawns;
 
@@ -554,5 +634,5 @@
     return { d: d * f * mult + d * (1 - f), armor: Math.max(0, armor - wear * f) };
   }
 
-  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv, armorHit };
+  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv, armorHit, sanitizeMap, buildCustom, mapToSource, makeSpawns };
 });

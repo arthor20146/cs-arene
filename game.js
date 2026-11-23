@@ -16,6 +16,26 @@ NADES.forEach((k) => {
   if (!WEAPONS[k]) WEAPONS[k] = { n: GREN[k].n, slot: 4, price: GREN[k].price, team: '', dmg: 0, hs: 1, rof: 0.5, range: 0, mag: 0, res: 0, auto: 0, spread: 0, rec: 0, rl: 0, spd: 1, kill: 300, cls: 'grenade', fall: 1, pen: 0, ap: 0 };
 });
 let MAP = MAPS.dust, BOXES = MAP.boxes, SITES = MAP.sites; // carte actuelle (changée par setMap)
+/* ---------- cartes perso (éditeur) ----------
+   l_<id> : carte de « Mes cartes » (localStorage cs_maps), envoyée au serveur au lancement de la partie
+   u_<id> : carte enregistrée sur le serveur (chargée à la demande par /maps/get) */
+function localMaps() { try { const a = JSON.parse(localStorage.getItem('cs_maps') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+localMaps().forEach((m) => { try { MAPS['l_' + m.id] = CS.buildCustom(m.data, 'l_' + m.id); } catch (e) {} });
+const mapLoads = {};
+function loadCustom(id) {
+  if (MAPS[id]) return Promise.resolve(true);
+  if (!/^u_[a-f0-9]{10}$/.test(String(id))) return Promise.resolve(false);
+  return mapLoads[id] || (mapLoads[id] = fetch('/maps/get?id=' + id).then((r) => r.json())
+    .then((r) => { if (r.ok) MAPS[id] = CS.buildCustom(r.map, id); return !!r.ok; })
+    .catch(() => false).then((ok) => { delete mapLoads[id]; return ok; }));
+}
+async function uploadMap(src) {
+  const r = await fetch('/maps/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ map: src, tok: Account.token() || '' }) });
+  const j = await r.json().catch(() => ({ ok: false, err: 'Réponse invalide du serveur' }));
+  if (!j.ok) throw new Error(j.err || 'Échec de l\'envoi');
+  MAPS[j.id] = CS.buildCustom(src, j.id);
+  return j.id;
+}
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const R = CFG.radius;
@@ -955,7 +975,17 @@ function connect() {
   $('err').textContent = '';
   try { ws = new WebSocket(url); } catch (e) { $('err').textContent = 'Connexion impossible.'; return; }
   ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map, mode: joinInfo.mode, lobby: joinInfo.lobby ? 1 : 0, tok: Account.token() || '' });
-  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
+  let hold = null;   // carte perso inconnue : on la télécharge avant de traiter les messages
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (hold) { hold.push(m); return; }
+    if (m.type === 'welcome' && !MAPS[m.map]) {
+      hold = [m];
+      loadCustom(m.map).then(() => { const q = hold; hold = null; q.forEach(onMsg); });
+      return;
+    }
+    onMsg(m);
+  };
   ws.onclose = () => {
     if (connected) { connected = false; leaveToMenu('Connexion au serveur perdue.'); }
     else if (!$('err').textContent) $('err').textContent = 'Connexion impossible. Le serveur est-il lancé ?';
@@ -1023,7 +1053,7 @@ function onSnap(m) {
   const wasLobby = inLobby();
   S.lb = m.lb ? 1 : 0; S.ho = m.ho || 0; S.lc = m.lc || 0;
   S.ph = m.ph; S.te = m.te; S.rd = m.rd; S.sc = m.sc; S.b = m.b; S.recv = performance.now();
-  if (m.mp && m.mp !== MAP.id) setMap(m.mp);
+  if (m.mp && m.mp !== MAP.id) { if (MAPS[m.mp]) setMap(m.mp); else loadCustom(m.mp); }   // carte perso : la suivante une fois chargée
   S.md = m.md ? 1 : 0; S.jm = m.jm || 0; S.iv = m.iv || 0; S.pm = m.pm || '';
   // première arrivée au stand de tir : on ouvre le choix de la difficulté
   if (S.pm === 'range' && PR.shown !== joinInfo.room && m.me && m.me.al) { PR.shown = joinInfo.room; setTimeout(openPanel, 400); }
@@ -1731,7 +1761,7 @@ function sandboxPanel(body) {
     el('div', { class: 'pbtns' }, pbtn('Recevoir la bombe', () => { sb({ a: 'bomb' }); closePanel(); })),
     el('p', { class: 'hint' }, 'Tu passes Terroriste. Pose-la sur un site (' + Settings.key('use') + ' maintenu), puis change de camp pour la désamorcer. Explosion ou désamorçage : la partie continue.'),
     el('div', { class: 'grp' }, 'CARTE'),
-    el('div', { class: 'pbtns maps' }, Object.keys(MAPS).map((id) => pbtn(MAPS[id].name, () => { sb({ a: 'map', map: id }); closePanel(); }, MAP.id === id ? 'on' : ''))),
+    el('div', { class: 'pbtns maps' }, Object.keys(MAPS).filter((id) => !MAPS[id].custom || id === MAP.id).map((id) => pbtn(MAPS[id].name, () => { sb({ a: 'map', map: id }); closePanel(); }, MAP.id === id ? 'on' : ''))),
     el('div', { class: 'grp' }, 'DÉSORDRE (MODE « RIEN N\'EST À SA PLACE »)'),
     el('div', { class: 'pbtns' }, pbtn('Murs qui bougent', () => sb({ a: 'chaos', k: 'walls' })), pbtn('Armes principales bloquées', () => sb({ a: 'chaos', k: 'jam', s: 1 })),
       pbtn('Pistolets bloqués', () => sb({ a: 'chaos', k: 'jam', s: 2 })), pbtn('Commandes inversées', () => sb({ a: 'chaos', k: 'invert' })), pbtn('Tout remettre en place', () => sb({ a: 'chaos', k: 'restore' }))),
@@ -1955,9 +1985,51 @@ let chosenTeam = store.get('cs_team', 'auto');
 function paintTeams() { document.querySelectorAll('#teams button').forEach((b) => b.classList.toggle('on', b.dataset.t === chosenTeam)); }
 paintTeams();
 document.querySelectorAll('#teams button').forEach((b) => b.addEventListener('click', () => { chosenTeam = b.dataset.t; paintTeams(); }));
+// cartes ajoutées depuis l'éditeur (addEditorMap dans shared.js) : un bouton chacune, avant la carte LABO
+Object.keys(MAPS).forEach((id) => {
+  const M = MAPS[id]; if (!M.ed || document.querySelector('#maps button[data-m="' + id + '"]')) return;
+  const b = document.createElement('button'); b.dataset.m = id; b.style.setProperty('--c', M.ed.col);
+  const t = document.createElement('b'); t.textContent = M.name.toUpperCase(); const s = document.createElement('small'); s.textContent = M.ed.desc;
+  b.append(t, s); $('maps').insertBefore(b, $('maps').querySelector('.practice-only'));
+});
 let chosenMap = MAPS[store.get('cs_map', 'dust')] ? store.get('cs_map', 'dust') : 'dust';
-function paintMaps() { document.querySelectorAll('#maps button').forEach((b) => b.classList.toggle('on', b.dataset.m === chosenMap)); }
-paintMaps(); setMap(chosenMap);
+function paintMaps() { document.querySelectorAll('#maps button, #cmaps button[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === chosenMap)); }
+// éditeur de cartes : réservé au(x) compte(s) autorisé(s) par le serveur
+let canEdit = false, canTok = null;
+function checkEditor() {
+  const t = Account.token() || '', key = t + '|' + (Account.user ? Account.user.name : '');
+  if (key === canTok) return; canTok = key;
+  if (!t || !Account.user) { canEdit = false; buildMyMaps(); return; }
+  fetch('/maps/can', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tok: t }) })
+    .then((r) => r.json()).then((r) => { canEdit = !!(r && r.can); buildMyMaps(); }).catch(() => {});
+}
+// « Mes cartes » (éditeur) dans le menu
+function buildMyMaps() {
+  const box = $('cmaps'); if (!box) return;
+  box.textContent = '';
+  $('navEdit').classList.toggle('hide', !canEdit);
+  const shared = /^u_/.test(chosenMap) && MAPS[chosenMap];
+  box.classList.toggle('hide', !canEdit && !shared); box.previousElementSibling.classList.toggle('hide', !canEdit && !shared);
+  const add = (id, name, sub, col) => {
+    const b = document.createElement('button'); if (id) b.dataset.m = id; b.style.setProperty('--c', col || '#c99bff');
+    const t = document.createElement('b'); t.textContent = name; const s = document.createElement('small'); s.textContent = sub; b.append(t, s);
+    box.appendChild(b); return b;
+  };
+  if (canEdit) localMaps().forEach((m) => {
+    const b = add('l_' + m.id, m.name.toUpperCase(), 'Carte perso · ' + m.data.boxes.length + ' blocs');
+    b.title = 'Clic : choisir · double-clic : modifier dans l\'éditeur';
+    b.addEventListener('click', () => { chosenMap = b.dataset.m; store.set('cs_map', chosenMap); paintMaps(); if (!connected) setMap(chosenMap); });
+    b.addEventListener('dblclick', () => { location.href = 'editor.html?open=' + encodeURIComponent(m.id); });
+  });
+  // carte partagée par un lien (?cmap=)
+  if (/^u_/.test(chosenMap) && MAPS[chosenMap]) {
+    const b = add(chosenMap, MAPS[chosenMap].name.toUpperCase(), 'Carte partagée', '#8ccf4d');
+    b.addEventListener('click', () => { paintMaps(); });
+  }
+  if (canEdit) { const n = add('', '+ CRÉER UNE CARTE', 'Ouvrir l\'éditeur', '#9aa7b2'); n.addEventListener('click', () => { location.href = 'editor.html'; }); }
+  paintMaps();
+}
+buildMyMaps(); setMap(chosenMap);
 chosenMode = store.get('cs_mode', '') === 'desordre' ? 'desordre' : '';
 const MODE_N = { '': 'BOMBE', desordre: 'DÉSORDRE', range: 'STAND DE TIR', sandbox: 'ZONE DE TEST' };
 const isPracticeMode = (m) => m === 'range' || m === 'sandbox';
@@ -1970,6 +2042,7 @@ function paintModes() {
   if (chosenMode !== 'sandbox' && MAPS[chosenMap].practice) { chosenMap = 'dust'; paintMaps(); if (!connected) setMap(chosenMap); }
   const showMaps = chosenMode !== 'range';
   $('maps').style.display = showMaps ? '' : 'none'; $('maps').previousElementSibling.style.display = showMaps ? '' : 'none';
+  $('cmaps').style.display = showMaps ? '' : 'none'; $('cmaps').previousElementSibling.style.display = showMaps ? '' : 'none';
   $('teams').style.display = chosenMode === 'range' ? 'none' : ''; $('teams').previousElementSibling.style.display = chosenMode === 'range' ? 'none' : '';
   $('lobbyRow').classList.toggle('hide', pm);
   $('pracNote').classList.toggle('hide', !pm);
@@ -1982,7 +2055,7 @@ function paintModes() {
 paintModes();
 function pickMode(mo) {
   // la zone de test s'ouvre sur la carte LABO (on peut en choisir une autre)
-  if (mo === 'sandbox' && chosenMode !== 'sandbox') { chosenMap = 'labo'; paintMaps(); if (!connected) setMap(chosenMap); }
+  if (mo === 'sandbox' && chosenMode !== 'sandbox' && !(MAPS[chosenMap] && MAPS[chosenMap].custom)) { chosenMap = 'labo'; paintMaps(); if (!connected) setMap(chosenMap); }
   chosenMode = mo; if (!isPracticeMode(mo)) store.set('cs_mode', mo); paintModes();
 }
 document.querySelectorAll('#modes button').forEach((b) => b.addEventListener('click', () => pickMode(b.dataset.mo)));
@@ -1991,6 +2064,7 @@ $('navRange').addEventListener('click', () => pickMode('range'));
 $('navTest').addEventListener('click', () => pickMode('sandbox'));
 $('navAcc').addEventListener('click', () => Account.open());
 $('navPass').addEventListener('click', () => Pass.open());
+$('navEdit').addEventListener('click', () => { location.href = 'editor.html'; });
 
 // compte : le pseudo du compte remplace le champ PSEUDO
 function paintAccount(u) {
@@ -2004,6 +2078,7 @@ function paintAccount(u) {
   $('lbAcc').textContent = u ? '✔ ' + u.name.toUpperCase() + ' · NV ' + u.lv : 'COMPTE';
 }
 Account.on(paintAccount); paintAccount(Account.user);
+Account.on(checkEditor); checkEditor();
 // skin changé depuis le pass : l'arme en main se met à jour
 Account.on(() => { if (V && V.id && V.sk !== Account.skinOf(V.id) && !isNade(V.id)) buildVM(V.id); });
 
@@ -2046,6 +2121,14 @@ function startGame() {
   const map = pm === 'range' ? 'range' : pm ? chosenMap : (MAPS[chosenMap].practice ? 'dust' : chosenMap);
   joinInfo = { name, room, team: chosenTeam, map, mode: chosenMode, lobby: pm ? false : $('lobbyChk').checked };
   $('play').disabled = true; $('err').textContent = 'Connexion…';
+  if (/^l_/.test(map)) {
+    const lm = localMaps().find((x) => 'l_' + x.id === map);
+    if (!lm) { $('err').textContent = 'Carte introuvable dans ce navigateur'; $('play').disabled = false; return; }
+    $('err').textContent = 'Envoi de la carte au serveur…';
+    uploadMap(lm.data).then((id) => { joinInfo.map = id; $('err').textContent = 'Connexion…'; connect(); })
+      .catch((e) => { $('err').textContent = 'Carte : ' + (e.message === 'Failed to fetch' ? 'serveur injoignable' : e.message); $('play').disabled = false; });
+    return;
+  }
   connect();
 }
 $('lobbyChk').checked = store.get('cs_lobby', '1') !== '0';
@@ -2346,7 +2429,7 @@ function renderLobby(m) {
   // cartes
   const mp = $('lbMaps'); mp.innerHTML = '';
   Object.keys(MAPS).forEach((id) => {
-    if (MAPS[id].practice) return;   // cartes d'entraînement : pas en partie classique
+    if (MAPS[id].practice || /^l_/.test(id) || (MAPS[id].custom && id !== m.mp)) return;   // ni entraînement, ni cartes perso (sauf celle de la salle)
     const b = document.createElement('button'); b.className = id === m.mp ? 'on' : ''; b.disabled = !isHost;
     b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = MAPS[id].name.toUpperCase(); b.lastChild.textContent = isHost ? '' : (id === m.mp ? 'choisie par l\u2019hôte' : '');
     b.addEventListener('click', () => send({ type: 'lmap', map: id }));
@@ -2616,7 +2699,18 @@ requestAnimationFrame(frame);
   let skip = false, go = '';
   try { skip = sessionStorage.getItem('cs_menu') === '1'; sessionStorage.removeItem('cs_menu'); go = sessionStorage.getItem('cs_go') || ''; sessionStorage.removeItem('cs_go'); } catch (e) {}
   // depuis le lobby : stand de tir ou zone de test directement
-  if (isPracticeMode(go)) { pickMode(go); setTimeout(startGame, 300); }
+  const cm = new URLSearchParams(location.search).get('cmap');
+  if (cm) {   // lien d'une carte partagée : on la charge, on la choisit, puis direction le lobby de la salle
+    $('err').textContent = 'Chargement de la carte…';
+    loadCustom(cm).then((ok) => {
+      if (!ok) { $('err').textContent = 'Carte partagée introuvable sur ce serveur'; return; }
+      $('err').textContent = '';
+      if (isPracticeMode(chosenMode)) pickMode('');
+      chosenMap = cm; setMap(cm); buildMyMaps();
+      if (!skip) { $('lobbyChk').checked = true; startGame(); }
+    });
+  }
+  else if (isPracticeMode(go)) { pickMode(go); setTimeout(startGame, 300); }
   else if (!skip) setTimeout(() => { if (isPracticeMode(chosenMode)) pickMode(''); $('lobbyChk').checked = true; startGame(); }, 300);
 }
 })();

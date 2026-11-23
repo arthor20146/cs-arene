@@ -36,6 +36,8 @@
       "main.js",
       "server.js",
       "index.html",
+      "editor.html",
+      "editor.js",
       "style.css",
       "game.js",
       "settings.js",

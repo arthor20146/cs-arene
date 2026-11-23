@@ -238,6 +238,85 @@ const Acc = (function () {
   return { ready, route, byTok, keyOf, stat, level, pass, mastery, eqOf, onEquip: (f) => eqListeners.push(f), exists: (n) => !!db.users[String(n).toLowerCase()] };
 })();
 
+/* ============================================================
+   Cartes perso (éditeur de cartes) : envoyées par l'éditeur ou le menu, rangées par empreinte (u_xxxxxxxxxx).
+   Fichier DATA_DIR/maps.json, et base Supabase (ligne « maps ») si elle est configurée.
+   POST /maps/save { map } -> { ok, id }   GET /maps/get?id=u_... -> { ok, map }   GET /maps/list -> { ok, list }
+   ============================================================ */
+const CMaps = (function () {
+  const FILE = path.join(DATA_DIR, 'maps.json'), MAX = 500;
+  const SB_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, ''), SB_KEY = process.env.SUPABASE_KEY || '', useDb = !!(SB_URL && SB_KEY);
+  const SB_H = Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, SB_KEY.startsWith('eyJ') ? { Authorization: 'Bearer ' + SB_KEY } : {});
+  let db = {};   // id -> { map, at, name, n }
+  const reg = (id) => { try { MAPS[id] = CS.buildCustom(db[id].map, id); } catch (e) { delete db[id]; } };
+  const loadAll = (raw) => { if (raw && typeof raw === 'object') Object.keys(raw).forEach((id) => { if (/^u_[a-f0-9]{10}$/.test(id) && raw[id] && raw[id].map && !db[id]) { db[id] = raw[id]; reg(id); } }); };
+  try { loadAll(JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) {}
+  (async function loadDb() {
+    if (!useDb) return;
+    try {
+      const r = await fetch(SB_URL + '/rest/v1/cs_store?id=eq.maps&select=data', { headers: SB_H, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const rows = await r.json(); if (rows.length) loadAll(rows[0].data);
+    } catch (e) { console.error('Cartes perso : lecture de la base impossible :', e.message); setTimeout(loadDb, 30000); }
+  })();
+  if (Object.keys(db).length) console.log('Cartes perso : ' + Object.keys(db).length);
+  let timer = null;
+  const persist = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const body = JSON.stringify(db);
+      try { fs.mkdirSync(DATA_DIR, { recursive: true }); await fs.promises.writeFile(FILE + '.tmp', body); await fs.promises.rename(FILE + '.tmp', FILE); } catch (e) { console.error('Cartes perso : écriture impossible :', e.message); }
+      if (useDb) {
+        try {
+          await fetch(SB_URL + '/rest/v1/cs_store', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, SB_H),
+            body: '[{"id":"maps","data":' + body + ',"updated_at":"' + new Date().toISOString() + '"}]', signal: AbortSignal.timeout(20000) });
+        } catch (e) { console.error('Cartes perso : envoi à la base impossible :', e.message); }
+      }
+    }, 800);
+  };
+  const hits = new Map();   // limite : 30 envois par minute et par adresse
+  function save(src, ip) {
+    const now = Date.now(), h = (hits.get(ip) || []).filter((t) => now - t < 60000);
+    if (h.length >= 30) return { ok: false, err: 'Trop d\'envois, réessaie dans une minute', code: 429 };
+    h.push(now); hits.set(ip, h);
+    const map = CS.sanitizeMap(src);
+    const id = 'u_' + crypto.createHash('sha1').update(JSON.stringify(map)).digest('hex').slice(0, 10);
+    if (!db[id]) {
+      db[id] = { map, at: now, name: map.name, n: map.boxes.length };
+      const ids = Object.keys(db);
+      if (ids.length > MAX) {   // les plus anciennes qui ne servent dans aucune salle s'en vont
+        ids.sort((a, b) => db[a].at - db[b].at).slice(0, ids.length - MAX).forEach((k) => { if (k !== id && !Array.from(rooms.values()).some((r) => r.map.id === k)) { delete db[k]; delete MAPS[k]; } });
+      }
+      persist();
+    } else db[id].at = now;
+    reg(id);
+    return { ok: true, id };
+  }
+  const get = (id) => (db[id] ? { ok: true, map: db[id].map } : { ok: false, err: 'Carte introuvable', code: 404 });
+  const list = () => ({ ok: true, list: Object.keys(db).sort((a, b) => db[b].at - db[a].at).slice(0, 60).map((id) => ({ id, name: db[id].name, n: db[id].n, at: db[id].at })) });
+  return { save, get, list };
+})();
+// éditeur de cartes réservé à certains comptes (variable MAP_EDITORS, séparés par des virgules ; « faze » par défaut)
+const EDITORS = (process.env.MAP_EDITORS || 'faze').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const canEdit = (tok) => { const u = Acc.byTok(tok); return !!(u && EDITORS.indexOf(u.name.toLowerCase()) >= 0); };
+function mapsRoute(req, res, url) {
+  const q = new URLSearchParams((req.url || '').split('?')[1] || '');
+  if (req.method === 'GET' && url === 'get') { const o = CMaps.get(String(q.get('id') || '')); return json(res, o.ok ? 200 : o.code, o); }
+  if (req.method === 'GET' && url === 'list') return json(res, 200, CMaps.list());
+  if (req.method !== 'POST' || (url !== 'save' && url !== 'can')) return json(res, 404, { ok: false, err: 'Inconnu' });
+  let body = '', size = 0, dead = false;
+  req.on('data', (c) => { size += c.length; if (size > 262144) { dead = true; json(res, 413, { ok: false, err: 'Carte trop grosse' }); req.destroy(); } else body += c; });
+  req.on('end', () => {
+    if (dead) return;
+    let m; try { m = JSON.parse(body || '{}'); } catch (e) { return json(res, 400, { ok: false, err: 'Carte illisible' }); }
+    const ok = canEdit(m && m.tok);
+    if (url === 'can') return json(res, 200, { ok: true, can: ok });
+    if (!ok) return json(res, 403, { ok: false, err: 'L\'éditeur de cartes est réservé au compte administrateur', code: 403 });
+    const ip = String(req.headers['fly-client-ip'] || (req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '');
+    const o = CMaps.save(m && m.map, ip); json(res, o.ok ? 200 : o.code, o);
+  });
+}
+
 function json(res, code, o) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); }
 function api(req, res, r) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, err: 'Méthode non autorisée' });
@@ -259,6 +338,7 @@ const server = http.createServer((req, res) => {
   try { url = decodeURIComponent((req.url || '/').split('?')[0]); } catch (e) { res.writeHead(400); return res.end(); }
   if (url === '/healthz') { res.writeHead(200); return res.end('ok'); }
   if (url.startsWith('/api/')) return api(req, res, url.slice(5));
+  if (url.startsWith('/maps/')) return mapsRoute(req, res, url.slice(6));
   const rel = url === '/' ? '/index.html' : url;
   const file = path.normalize(path.join(PUB, rel));
   if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
