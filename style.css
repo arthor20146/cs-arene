@@ -66,6 +66,13 @@ canvas#c.glitch{animation:glitch .16s steps(2) infinite}
 #dmgdir i{position:absolute;left:-14px;top:-130px;width:28px;height:36px;background:rgba(255,40,40,.85);clip-path:polygon(50% 0,100% 100%,0 100%);opacity:0}
 #scope{position:absolute;inset:0;display:none;background:linear-gradient(#000,#000) center/2px 100% no-repeat,linear-gradient(#000,#000) center/100% 2px no-repeat,radial-gradient(circle,transparent 38vmin,rgba(0,0,0,.55) 40vmin,#000 41vmin);box-shadow:inset 0 0 120px rgba(0,0,0,.7)}
 #scope:after{content:'';position:absolute;left:50%;top:50%;width:64vmin;height:64vmin;margin:-32vmin 0 0 -32vmin;background:repeating-linear-gradient(90deg,transparent 0 calc(8vmin - 2px),rgba(0,0,0,.8) calc(8vmin - 2px) 8vmin) center/100% 8px no-repeat,repeating-linear-gradient(0deg,transparent 0 calc(8vmin - 2px),rgba(0,0,0,.8) calc(8vmin - 2px) 8vmin) center/8px 100% no-repeat}
+/* lunette des fusils (AUG, SG 553) : grand cercle clair, réticule fin et point rouge */
+#scope2{position:absolute;inset:0;display:none;background:radial-gradient(circle,transparent 42vmin,rgba(0,0,0,.6) 43vmin,#050505 44.5vmin);box-shadow:inset 0 0 90px rgba(0,0,0,.6)}
+#scope2:before{content:'';position:absolute;left:50%;top:50%;width:86vmin;height:86vmin;margin:-43vmin 0 0 -43vmin;border-radius:50%;
+  background:linear-gradient(rgba(0,0,0,.75),rgba(0,0,0,.75)) center/1px 34% no-repeat,linear-gradient(rgba(0,0,0,.75),rgba(0,0,0,.75)) center/34% 1px no-repeat,
+  linear-gradient(#000,#000) 50% 0/3px 30% no-repeat,linear-gradient(#000,#000) 50% 100%/3px 30% no-repeat,linear-gradient(#000,#000) 0 50%/30% 3px no-repeat,linear-gradient(#000,#000) 100% 50%/30% 3px no-repeat;
+  box-shadow:inset 0 0 0 2px rgba(0,0,0,.85),inset 0 0 40px rgba(20,30,40,.35)}
+#scope2:after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#ff2a1f;box-shadow:0 0 6px #ff2a1f}
 
 #top{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:stretch;background:rgba(10,13,16,.78);border:1px solid var(--line)}
 #top>div{padding:6px 16px;text-align:center;min-width:88px}

@@ -130,7 +130,7 @@ function collide() {
       else P.z = b.z + hz + R;   // coincé dedans : on revient côté tireur
     }
   }
-  P.x = clamp(P.x, -39.6, 39.6); P.z = clamp(P.z, -39.6, 39.6);
+  P.x = clamp(P.x, -MAP.hx + 0.4, MAP.hx - 0.4); P.z = clamp(P.z, -MAP.hz + 0.4, MAP.hz - 0.4);
 }
 function groundAt(x, z, y) {
   let g = 0;
@@ -239,6 +239,7 @@ function applyHidden(hb, anim) {
 }
 const jammed = (id) => { const w = WEAPONS[id]; return !!(S.jm && w && w.slot === S.jm.s); };
 function onTeleport(m) {
+  if (m.k) { P.x = m.x; P.y = m.y; P.z = m.z; P.vx = P.vz = 0; P.vy = Math.min(0, P.vy); tpSeq = m.s; return; }   // position refusée par le serveur
   P.x = m.x; P.y = m.y; P.z = m.z; P.vx = P.vy = P.vz = 0; P.yaw = m.yaw; P.pitch = 0; P.recP = P.recY = 0;
   P.ground = m.y < 0.05; P.landT = 0; P.burst = 0;
   tpSeq = m.s; tpName = m.n || ''; scoped = false; fireLatch = false;
@@ -610,8 +611,13 @@ vmBomb = Models.bomb(); vmBomb.visible = false; vmBomb.scale.setScalar(1.25); vm
 }
 const _bR = new THREE.Vector3(), _bL = new THREE.Vector3(), _pw = new THREE.Vector3();
 const sstep = (x) => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+// fusils à lunette sans mode sniper (AUG, SG 553) : en visée, on regarde dans la lunette (sinon le tube cache tout)
+const opticView = () => !!(aiming && V && V.info.optic && !WEAPONS[cur].scope && adsT > 0.8 && alive());
+let opticShown = false;
 function poseVM(dt, now, showVM) {
-  const on = showVM && !scoped;
+  const ov = opticView();
+  if (ov !== opticShown) { opticShown = ov; $('scope2').style.display = ov ? 'block' : 'none'; }
+  const on = showVM && !scoped && !ov;
   const A = actFp, ease = sstep(A);
   vmPivot.visible = on; if (armR) { armR.visible = on; armL.visible = on && ((cur !== 'knife' && !isNade(cur)) || A > 0.02); }
   vmBomb.visible = on && A > 0.01;
@@ -882,6 +888,7 @@ function fire() {
     if (i === 0) { firstEnd = end.clone(); firstN = nor; firstS = sur; }
     if ((tracerN++ % 3 === 0) || w.pellets) fx.tracer(muzzle, end);
   }
+  send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [firstEnd.x, firstEnd.y, firstEnd.z], n: firstN ? [firstN.x, firstN.y, firstN.z] : null, s: firstS });
   Object.keys(tHits).forEach((id) => scoreTarget(tHits[id].res, tHits[id].pt));
   Object.keys(hits).forEach((pid) => {
     const e = hits[pid], dm = dummies.get(pid);
@@ -889,7 +896,6 @@ function fire() {
     else send({ type: 'hit', t: +pid, z: e.z, p: e.p });
     hitMark(e.hs);
   });
-  send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [firstEnd.x, firstEnd.y, firstEnd.z], n: firstN ? [firstN.x, firstN.y, firstN.z] : null, s: firstS });
   Snd.shot(cur, 1, 0, { wet: 0.5 });
 
   // recul : suit un motif (monte, puis dérive de chaque côté)
@@ -927,6 +933,7 @@ function slash(now, w) {
   const h = rc.intersectObjects(worldMeshes.concat(enemyMeshes()), false)[0];
   slash01 = 1;
   Snd.knife(1);
+  send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [org.x + fwd.x * 0.5, org.y + fwd.y * 0.5, org.z + fwd.z * 0.5] });
   if (h && h.object.userData.pid) {
     const zone = h.object.userData.zone, z = { [zone === 'h' ? 'c' : zone]: 1 }, dm = dummies.get(h.object.userData.pid);
     if (dm) hurtDummy(dm, calcDamage(w, h.distance, 0, z, dm.armor, dm.helmet), h.point, 'knife', h.distance, 0);
@@ -934,7 +941,6 @@ function slash(now, w) {
     fx.blood(h.point, fwd.clone().negate(), 10); hitMark(false);
   } else if (h && h.object.userData.tgt) { const res = rangeHitTest(h.object.userData.tgt, h); if (res) scoreTarget(res, h.point); }
   else if (h) impact(h.point, worldNormal(h), h.object.userData.mat, true);
-  send({ type: 'shoot', o: [org.x, org.y - 0.1, org.z], e: [org.x + fwd.x * 0.5, org.y + fwd.y * 0.5, org.z + fwd.z * 0.5] });
   return true;
 }
 
@@ -1019,10 +1025,16 @@ function onMsg(m) {
       S.lb = joinInfo.lobby ? 1 : 0; S.ph = 'wait';
       if (!joinInfo.lobby) tryLock();
       break;
-    case 'err': $('err').textContent = m.text; $('play').disabled = false; try { ws.close(); } catch (e) {} break;
+    case 'err':
+      if (connected) { connected = false; leaveToMenu(m.text); }
+      else { $('err').textContent = m.text; $('play').disabled = false; }
+      try { ws.close(); } catch (e) {}
+      break;
+    case 'am': if (ammo[m.w] && !reloading) { ammo[m.w].mag = m.mag | 0; ammo[m.w].res = m.res | 0; } break;
     case 'snap': onSnap(m); break;
     case 'spawn':
       P.x = m.x; P.y = m.y; P.z = m.z; P.vx = P.vy = P.vz = 0; P.yaw = m.yaw; P.pitch = 0; P.recP = P.recY = 0; P.burst = 0; P.tag = 0; P.landT = 0; P.stam = 1;
+      if (m.s != null) tpSeq = m.s;
       needRefill = true; scoped = false; reloading = false; crouchTog = false; specId = null; fx.clear(); resetNadeState();
       if (S.pm === 'sandbox') PR.hintT = Math.max(PR.hintT, 6);
       break;
@@ -1373,7 +1385,7 @@ function dummyLabel(d) {
 function dummySpot() {
   const fx0 = -Math.sin(P.yaw), fz0 = -Math.cos(P.yaw);
   for (let dist = 6; dist >= 1.5; dist -= 0.5) {
-    const x = clamp(P.x + fx0 * dist, -39, 39), z = clamp(P.z + fz0 * dist, -39, 39);
+    const x = clamp(P.x + fx0 * dist, -MAP.hx + 1, MAP.hx - 1), z = clamp(P.z + fz0 * dist, -MAP.hz + 1, MAP.hz - 1);
     const ok = !BOXES.some((b) => b.h > P.y + 0.55 && Math.abs(x - b.x) < b.w / 2 + 0.5 && Math.abs(z - b.z) < b.d / 2 + 0.5) &&
       Array.from(dummies.values()).every((o) => Math.hypot(o.x0 - x, o.z0 - z) > 0.9);
     if (ok) return { x, z };
@@ -2205,14 +2217,16 @@ function drawRadar() {
 
 // carte complète (touche M) : vue du dessus, nord en haut. Le décor est dessiné une fois par carte.
 const bigmap = $('bigmap'), bctx = bigmap.getContext('2d');
-const BIG = bigmap.width, BIGS = BIG / 84;   // 84 m affichés : la carte et une petite marge
+const BIG = bigmap.width;
+let BIGS = BIG / 84;   // pixels par mètre : la carte et une petite marge (recalculé pour chaque carte)
 const bx = (x) => BIG / 2 + x * BIGS, bz = (z) => BIG / 2 + z * BIGS;
 let bigBg = null, bigId = '';
 function bigBackground() {
   const c = document.createElement('canvas'); c.width = c.height = BIG;
   const g = c.getContext('2d');
+  BIGS = BIG / (2 * Math.max(MAP.hx, MAP.hz) + 4);
   g.fillStyle = 'rgba(12,15,18,.84)'; g.fillRect(0, 0, BIG, BIG);
-  g.fillStyle = (MAP.style || MAP.id) === 'dust' ? '#5e5442' : '#40454a'; g.fillRect(bx(-40), bz(-40), 80 * BIGS, 80 * BIGS);
+  g.fillStyle = (MAP.style || MAP.id) === 'dust' ? '#5e5442' : '#40454a'; g.fillRect(bx(-MAP.hx), bz(-MAP.hz), 2 * MAP.hx * BIGS, 2 * MAP.hz * BIGS);
   BOXES.forEach((b) => {
     if (b.t === 'barrel') g.fillStyle = '#8b8f93';
     else if (b.t === 'cont') g.fillStyle = '#' + (b.c || 0x777777).toString(16).padStart(6, '0');
@@ -2232,8 +2246,9 @@ function bigBackground() {
     g.fillStyle = '#fff'; g.font = 'bold 44px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(k, bx(st.x), bz(st.z));
   });
   g.font = 'bold 18px Arial'; g.textAlign = 'center';
-  g.fillStyle = '#5aa0ff'; g.fillText('DÉPART CT', bx(0), bz(-34.5));
-  g.fillStyle = '#e0a040'; g.fillText('DÉPART T', bx(0), bz(34.5));
+  const sT = MAP.spawns.T[0], sC = MAP.spawns.CT[0];
+  g.fillStyle = '#5aa0ff'; g.fillText('DÉPART CT', bx(sC.x), bz(sC.z) + 30);
+  g.fillStyle = '#e0a040'; g.fillText('DÉPART T', bx(sT.x), bz(sT.z) - 18);
   return c;
 }
 function drawBigMap() {
@@ -2515,7 +2530,7 @@ function update(dt, now) {
     if (PR.fly && isSandbox()) {   // zone de test : vol libre, sans gravité ni collisions
       const k2 = Math.min(1, 8 * dt), fs = 10 * (down('walk') ? 0.35 : 1), up = (down('jump') ? 1 : 0) - (down('crouch') ? 1 : 0);
       P.vx += ((-sy * f + cy * r) / len * fs - P.vx) * k2; P.vz += ((-cy * f - sy * r) / len * fs - P.vz) * k2; P.vy += (up * fs * 0.8 - P.vy) * k2;
-      P.x = clamp(P.x + P.vx * dt, -39.6, 39.6); P.z = clamp(P.z + P.vz * dt, -39.6, 39.6); P.y = clamp(P.y + P.vy * dt, 0, 40);
+      P.x = clamp(P.x + P.vx * dt, -MAP.hx + 0.4, MAP.hx - 0.4); P.z = clamp(P.z + P.vz * dt, -MAP.hz + 0.4, MAP.hz - 0.4); P.y = clamp(P.y + P.vy * dt, 0, 40);
       P.ground = true; P.landT = 0; P.crouch += (0 - P.crouch) * Math.min(1, 9 * dt);
     } else {
     const moving = f || r, ctl = P.ground ? (moving ? 9 : 12) : 0.9;
@@ -2667,7 +2682,8 @@ function frame(t) {
   } else {
     // décor de menu : caméra qui tourne autour de la carte
     menuT += dt * 0.08;
-    cam.position.set(Math.sin(menuT) * 26, 7.5, Math.cos(menuT) * 26);
+    const orb = 26 * Math.max(MAP.hx, MAP.hz) / 40;
+    cam.position.set(Math.sin(menuT) * orb, 7.5 * Math.max(1, orb / 26), Math.cos(menuT) * orb);
     cam.rotation.set(-0.16, menuT, 0);
     poseVM(dt, now, false);
     fx.update(dt);

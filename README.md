@@ -129,7 +129,8 @@ Côté code : `phaseBoxes(map)` (`shared.js`) donne la liste des obstacles qui p
 
 Page `editor.html` (bouton **ÉDITEUR DE CARTES** du menu). **Réservé au compte `faze`** : le serveur refuse d'enregistrer une carte pour tout autre compte, et le bouton n'apparaît pas pour les autres joueurs. Pour changer les comptes autorisés : variable d'environnement `MAP_EDITORS=faze,autre`.
 
-- Vue de dessus de la carte (80 × 80 m, T en bas, CT en haut) avec grille magnétique. Outils : mur, muret, caisse, grande caisse, conteneur (couleur, 1 à 3 étages), fût, terrasse, escalier, toit / passage couvert, sites A et B, départs T et CT, flèches au sol, gomme.
+- **Taille de la carte** au choix : de 40 à 160 m de large et de profondeur (panneau CARTE, ou boutons Petite 50 m, Normale 80 m, Grande 120 m, Immense 160 m). L'enceinte, les départs par défaut, le sol, l'horizon, le radar, la carte (M) et les contrôles du serveur suivent la taille.
+- Vue de dessus de la carte (T en bas, CT en haut) avec grille magnétique. Outils : mur, muret, caisse, grande caisse, conteneur (couleur, 1 à 3 étages), fût, terrasse, escalier, toit / passage couvert, sites A et B, départs T et CT, flèches au sol, gomme.
 - Sélection multiple, poignées, Ctrl+Z / Ctrl+Y, copier-coller, miroir, « Symétriser gauche → droite ».
 - **Vérification** en direct : sites, départs dans un mur, site ou départ CT inaccessible depuis le départ T, départs qui se voient. Calque « Zones accessibles ».
 - **Vue 3D** avec le rendu du jeu (vol libre ou à pied), **Tester** (zone de test), **Jouer dessus** (menu avec la carte choisie), **Partager** (lien `?cmap=…&room=…` pour les amis, qui n'ont pas besoin de l'éditeur).
@@ -163,6 +164,11 @@ Dans les deux cas, il faut laisser libres les zones de départ en haut et en bas
 - Recul en motif (monte, puis dérive), précision qui chute en mouvement et en l'air, réticule dynamique.
 - Rechargement plus long chargeur vide, cartouche par cartouche aux fusils à pompe (tirer interrompt), réarmement manuel de l'AWP, du SSG 08 et de la Nova.
 - Inertie, ralentissement quand on est touché ou à l'atterrissage, sauts répétés plus courts, souffle à la lunette (Maj pour le retenir).
+
+## Lunettes
+
+- **AWP, SSG 08** : clic droit = lunette de sniper (écran noir autour, zoom fort).
+- **AUG, SG 553** : clic droit = visée dans la lunette (cercle clair, réticule fin et point rouge, zoom ×1,9). L'arme disparaît pendant la visée, comme dans Counter-Strike.
 
 ## Grenades
 
@@ -235,11 +241,22 @@ style.css
 Dockerfile     déploiement Fly.io / Docker (range les fichiers client dans /app/public)
 ```
 
+## Anti-triche (serveur)
+
+Le serveur ne croit plus le navigateur sur ce qui compte :
+
+- **Déplacement** : vitesse maximale 7,2 m/s (avec une réserve pour les à-coups du réseau), pas de passage à travers les murs, hauteur de saut limitée, pas plus de 2,5 s en l'air. Une position refusée renvoie le joueur à la dernière position acceptée.
+- **Tir** : cadence de chaque arme, munitions comptées par le serveur (chargeur, réserve, durée du rechargement, cartouche par cartouche au fusil à pompe). Un tir refusé ne fait pas de dégâts ; des munitions « inventées » sont corrigées chez le joueur.
+- **Touches** : une touche n'est acceptée que juste après un tir accepté (une cible par plomb), et s'il existe une ligne de tir entre le tireur et la cible (murs infranchissables, au plus 2 obstacles traversés selon l'arme).
+- Trop de fautes en peu de temps : **expulsion** (message dans la salle, ligne « Anti-triche » dans les journaux du serveur).
+- Pas de contrôle de déplacement ni de munitions au stand de tir et dans la zone de test (parties privées).
+- Limites : un aimbot (visée automatique) ou un wallhack (voir les joueurs à travers les murs) ne se détectent pas de cette façon, et les scores du stand de tir sont calculés par le navigateur.
+
 ## Architecture réseau
 
 - Le client envoie sa position (30 Hz) ; le serveur renvoie un snapshot de la salle (20 Hz).
 - Le serveur décide de tout ce qui compte : phases de manche, argent, achats, bombe, PV, morts, scores. Les dégâts sont recalculés côté serveur depuis la table d'armes (cadence, portée, équipe, armure).
-- Le client détecte les impacts (raycast) et envoie « j'ai touché X ». C'est simple et fluide, mais un tricheur motivé pourrait tricher ; pour une partie entre amis c'est suffisant.
+- Le client détecte les impacts (raycast) et envoie « j'ai touché X » ; le serveur vérifie la cadence, les munitions et la ligne de tir (voir Anti-triche).
 
 ## Pistes d'amélioration
 

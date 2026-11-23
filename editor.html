@@ -142,6 +142,8 @@ textarea{width:100%;height:300px;background:var(--panel2);color:#cfe3d0;border:1
     <div class="pane" id="props"></div>
     <div class="sec">CARTE</div>
     <div class="pane" id="mapPane">
+      <div class="row"><label>Taille (m)</label><div class="row2" style="gap:4px"><input type="number" id="mW" min="40" max="160" step="2" title="Largeur (est-ouest), 40 à 160 m" style="width:100%;padding:5px 7px;background:var(--panel2);border:1px solid var(--line);color:var(--txt)"><input type="number" id="mD" min="40" max="160" step="2" title="Profondeur (nord-sud, entre les deux départs), 40 à 160 m" style="width:100%;padding:5px 7px;background:var(--panel2);border:1px solid var(--line);color:var(--txt)"></div></div>
+      <div class="btns" id="mSizes" style="margin:0 0 6px 102px"><button data-w="50" title="50 × 50 m">Petite</button><button data-w="80" title="80 × 80 m (comme Dust)">Normale</button><button data-w="120" title="120 × 120 m">Grande</button><button data-w="160" title="160 × 160 m">Immense</button></div>
       <div class="row"><label>Décor</label><select id="mStyle"><option value="dust">Désert (sable, crépi)</option><option value="docks">Industriel (béton, tôle)</option></select></div>
       <div class="row"><label>Ciel</label><select id="mSky"><option value="dust">Plein soleil</option><option value="medina">Fin d'après-midi</option><option value="docks">Nuageux</option><option value="cargo">Ciel bas, brumeux</option><option value="labo">Clair, peu de brume</option></select></div>
       <div class="row"><label>Sous-titre</label><input type="text" id="mDesc" maxlength="40" placeholder="Ex. : Ruines · deux étages"></div>
@@ -156,7 +158,7 @@ textarea{width:100%;height:300px;background:var(--panel2);color:#cfe3d0;border:1
       Sélection : clic, Maj+clic pour en ajouter, glisser dans le vide pour encadrer. Poignées pour redimensionner.<br>
       <b>Suppr</b> effacer · <b>Ctrl+D</b> dupliquer · <b>Ctrl+C / Ctrl+V</b> copier-coller · <b>R</b> pivoter ·
       <b>flèches</b> décaler (Maj : ×5) · <b>Page ↑ / ↓</b> hauteur · <b>Ctrl+Z / Ctrl+Y</b> annuler / rétablir · <b>Échap</b> désélectionner.<br>
-      La carte fait 80 × 80 m. Les T partent en bas (sud), les CT en haut (nord). On monte sans sauter jusqu'à 0,5 m, en sautant jusqu'à environ 1,5 m.
+      Taille réglable de 40 à 160 m de côté (panneau CARTE ; 80 × 80 m comme Dust). Les T partent en bas (sud), les CT en haut (nord). On monte sans sauter jusqu'à 0,5 m, en sautant jusqu'à environ 1,5 m.
     </div>
   </div>
   <div id="status"><span>Position <b id="sPos">—</b></span><span>Outil <b id="sTool">—</b></span><span id="sSel"></span><span class="grow"></span><span id="sZoom"></span></div>

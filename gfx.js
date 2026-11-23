@@ -530,7 +530,7 @@ function blobShadow() {
 }
 
 function paintGround(M) {
-  const S = 2048, W = 92, c = document.createElement('canvas'); c.width = c.height = S;
+  const S = 2048, W = 2 * Math.max(M.hx || 40, M.hz || 40) + 12, c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d'), r = rng(M.id.length * 3 + 5), px = S / W, dustS = (M.style || M.id) === 'dust';
   const X = (x) => (x + W / 2) * px, Y = (z) => (z + W / 2) * px;
   const blob = (x, y, rad, col, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, col + a + ')'); gr.addColorStop(1, col + '0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); };
@@ -629,13 +629,14 @@ function buildWorld(M, force) {
   [gm.map, gm.normalMap, gm.roughnessMap].forEach((t) => { t.repeat.set(dust ? 300 : 260, dust ? 300 : 260); t.needsUpdate = true; });
   const groundGeo = new THREE.CircleGeometry(600, 48);
   const ground = new THREE.Mesh(groundGeo, gm); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.ownMat = true; G.add(ground);
-  const gRay = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), RAYMAT); gRay.rotation.x = -Math.PI / 2; gRay.visible = false; gRay.userData = { mat: dust ? 'sand' : 'stone', pen: 0 }; gRay.updateMatrixWorld(); rayGroup.add(gRay); cur.rays.push(gRay);
+  const ext = Math.max(M.hx || 40, M.hz || 40), GW = 2 * ext + 12;   // taille du sol peint (carte + marge)
+  const gRay = new THREE.Mesh(new THREE.PlaneGeometry(GW, GW), RAYMAT); gRay.rotation.x = -Math.PI / 2; gRay.visible = false; gRay.userData = { mat: dust ? 'sand' : 'stone', pen: 0 }; gRay.updateMatrixWorld(); rayGroup.add(gRay); cur.rays.push(gRay);
   const ovT = paintGround(M); cur.parts.ground = ovT;
-  const ov = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), new THREE.MeshStandardMaterial({ map: ovT, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+  const ov = new THREE.Mesh(new THREE.PlaneGeometry(GW, GW), new THREE.MeshStandardMaterial({ map: ovT, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
   ov.rotation.x = -Math.PI / 2; ov.position.y = 0.012; ov.receiveShadow = true; ov.renderOrder = 1; ov.userData.ownMat = true; G.add(ov);
   if (!dust) { // flaques : reflets du ciel
     const pt = paintPuddles(4);
-    const pud = new THREE.Mesh(new THREE.PlaneGeometry(84, 84), new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.08, metalness: 0, transparent: true, alphaMap: pt, opacity: 0.62, depthWrite: false, envMapIntensity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const pud = new THREE.Mesh(new THREE.PlaneGeometry(GW - 8, GW - 8), new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.08, metalness: 0, transparent: true, alphaMap: pt, opacity: 0.62, depthWrite: false, envMapIntensity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     pud.rotation.x = -Math.PI / 2; pud.position.y = 0.016; pud.renderOrder = 2; pud.userData.ownMat = true; G.add(pud);
   }
   // obstacles
@@ -834,8 +835,10 @@ function buildWorld(M, force) {
   ['plaster', 'stone', 'concrete', 'crate', 'ribs'].forEach((k) => add(tagp('near', k, B.mesh(k, surfMat(k), true))));
   add(tagp('near', 'ribsS', B.mesh('ribsS', metalPlain(), true)));
   add(tagp('near', 'sand0', B.mesh('sand0', surfMat(groundK === 'sand' ? 'sand' : 'crate'), true)));
-  ['plaster', 'stone', 'concrete', 'ribs'].forEach((k) => add(tagp('far', k, Far.mesh(k, surfMat(k), false, false))));
-  add(tagp('far', 'ribsS', Far.mesh('ribsS', metalPlain(), true, false)));
+  const farK = Math.max(1, ext / 40), farS = (m) => { if (m && farK > 1) m.scale.set(farK, 1, farK); return m; };   // grande carte : l'horizon recule d'autant
+  ['plaster', 'stone', 'concrete', 'ribs'].forEach((k) => add(tagp('far', k, farS(Far.mesh(k, surfMat(k), false, false)))));
+  add(tagp('far', 'ribsS', farS(Far.mesh('ribsS', metalPlain(), true, false))));
+  if (Q.shadow) { const sc = sun.shadow.camera, R = Math.max(60, ext + 18); if (sc.right !== R) { sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.far = Math.max(260, R * 3); sc.updateProjectionMatrix(); } }
   const dm = tagp('dec', 'd', D.mesh('d', decalMat(), false)); if (dm) { add(dm); dm.renderOrder = 2; }
   const cl = tagp('near', 'c', clothB.mesh('c', clothMat(), true)); if (cl) add(cl);
   Object.keys(cur.pieces).forEach((i) => {

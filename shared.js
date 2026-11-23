@@ -139,16 +139,20 @@
   const B = (x, z, w, d, h, t, c) => ({ x, z, w, d, h, t, c });
 
   // T au sud (z>0), CT au nord (z<0) sur toutes les cartes
-  function makeSpawns() {
+  // hz = demi-profondeur de la carte (40 m pour les cartes de 80 × 80 m)
+  function makeSpawns(hz) {
+    hz = hz || 40;
     const s = { T: [], CT: [] };
     for (let i = 0; i < 10; i++) {
       const x = -9 + (i % 5) * 4.5;
-      s.T.push({ x, y: 0, z: 35 + (i / 5 | 0) * 3, yaw: 0 });
-      s.CT.push({ x, y: 0, z: -35 - (i / 5 | 0) * 3, yaw: Math.PI });
+      s.T.push({ x, y: 0, z: hz - 5 + (i / 5 | 0) * 3, yaw: 0 });
+      s.CT.push({ x, y: 0, z: -hz + 5 - (i / 5 | 0) * 3, yaw: Math.PI });
     }
     return s;
   }
-  const ENCLOSURE = [B(0, -40.5, 82, 1, 10), B(0, 40.5, 82, 1, 10), B(-40.5, 0, 1, 80, 10), B(40.5, 0, 1, 80, 10)];
+  // enceinte : 4 murs de 10 m autour d'une carte de 2hx × 2hz mètres
+  const enclosure = (hx, hz) => [B(0, -hz - 0.5, 2 * hx + 2, 1, 10), B(0, hz + 0.5, 2 * hx + 2, 1, 10), B(-hx - 0.5, 0, 1, 2 * hz, 10), B(hx + 0.5, 0, 1, 2 * hz, 10)];
+  const ENCLOSURE = enclosure(40, 40);
 
   // Carte dessinée en grille : 40 lignes de 40 caractères, 1 caractère = 2 m. Nord (CT) en haut, sud (T) en bas.
   // . sol   # bâtiment   H bâtiment plus haut   = muret   c petite caisse   C grande caisse   b fût
@@ -437,6 +441,7 @@
   // carte en grille : on en déduit les obstacles, auxquels s'ajoutent les éléments fins (escaliers, parapets)
   MAPS.medina.boxes = ENCLOSURE.concat(fromGrid(MAPS.medina.grid, 6, 2.6), MAPS.medina.extra);
   MAPS.dust.style = 'dust'; MAPS.docks.style = 'docks';
+  Object.keys(MAPS).forEach((k) => { MAPS[k].hx = MAPS[k].hx || 40; MAPS[k].hz = MAPS[k].hz || 40; });
 
   /* ---------- Cartes perso (éditeur de cartes) ----------
      Format source (JSON, celui de l'éditeur) :
@@ -448,33 +453,38 @@
   const MAP_T = { w: 1, cont: 1, barrel: 1 };
   const MAP_SKY = ['dust', 'medina', 'docks', 'cargo', 'labo'];
   const MAP_DIR = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
+  const MAP_MIN = 40, MAP_MAX = 160;
   function sanitizeMap(src) {
     src = src && typeof src === 'object' ? src : {};
     const n = (v, a, b, d) => { v = +v; if (!isFinite(v)) v = d; return Math.max(a, Math.min(b, Math.round(v * 100) / 100)); };
     const arr = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []).filter((o) => o && typeof o === 'object');
     const style = src.style === 'docks' ? 'docks' : 'dust';
+    // taille de la carte : 40 à 160 m de côté, par pas de 2 m (80 × 80 m par défaut)
+    const size = (v) => Math.round(n(v, MAP_MIN, MAP_MAX, 80) / 2) * 2;
+    const W = size(src.w), Dp = size(src.d), hx = W / 2, hz = Dp / 2;
     const out = {
       v: 1, name: String(src.name || 'Ma carte').replace(/[\u0000-\u001f<>"]/g, '').trim().slice(0, 24) || 'Ma carte',
       style, sky: MAP_SKY.indexOf(src.sky) >= 0 ? src.sky : style,
       desc: String(src.desc || '').replace(/[\u0000-\u001f<>"]/g, '').trim().slice(0, 40),
       col: /^#[0-9a-f]{6}$/i.test(src.col || '') ? src.col.toLowerCase() : '#c99bff',
+      w: W, d: Dp,
       boxes: arr(src.boxes, 800).map((b) => {
         const t = MAP_T[b.t] ? b.t : '';
-        const o = { x: n(b.x, -40, 40, 0), z: n(b.z, -40, 40, 0), w: n(b.w, 0.2, 80, 2), d: n(b.d, 0.2, 80, 2), h: n(b.h, 0.2, 20, 2) };
+        const o = { x: n(b.x, -hx, hx, 0), z: n(b.z, -hz, hz, 0), w: n(b.w, 0.2, MAP_MAX, 2), d: n(b.d, 0.2, MAP_MAX, 2), h: n(b.h, 0.2, 20, 2) };
         if (t) o.t = t;
         if (t === 'barrel') { o.w = o.d = 0.8; o.h = 1.1; }
         if (t === 'cont') o.c = n(b.c, 0, 0xffffff, 0xb5432f) | 0;
         return o;
       }),
-      stairs: arr(src.stairs, 40).filter((s) => MAP_DIR[s.dir]).map((s) => ({ x: n(s.x, -40, 40, 0), z: n(s.z, -40, 40, 0), w: n(s.w, 0.6, 12, 3), dir: s.dir, n: n(s.n, 1, 16, 4) | 0 })),
-      arches: arr(src.arches, 40).filter(Array.isArray).map((a) => [n(a[0], -40, 40, 0), n(a[1], -40, 40, 0), n(a[2], 0.4, 40, 4), n(a[3], 0.4, 40, 2), n(a[4], 1.5, 12, 3.2), n(a[5], 0.2, 4, 0.8)]),
-      marks: arr(src.marks, 60).filter(Array.isArray).map((m) => { const l = Math.hypot(+m[2] || 0, +m[3] || 0) || 1; return [n(m[0], -40, 40, 0), n(m[1], -40, 40, 0), n((+m[2] || 0) / l, -1, 1, 1), n((+m[3] || 0) / l, -1, 1, 0), m[4] === 'B' ? 'B' : 'A']; }),
+      stairs: arr(src.stairs, 40).filter((s) => MAP_DIR[s.dir]).map((s) => ({ x: n(s.x, -hx, hx, 0), z: n(s.z, -hz, hz, 0), w: n(s.w, 0.6, 12, 3), dir: s.dir, n: n(s.n, 1, 16, 4) | 0 })),
+      arches: arr(src.arches, 40).filter(Array.isArray).map((a) => [n(a[0], -hx, hx, 0), n(a[1], -hz, hz, 0), n(a[2], 0.4, 60, 4), n(a[3], 0.4, 60, 2), n(a[4], 1.5, 12, 3.2), n(a[5], 0.2, 4, 0.8)]),
+      marks: arr(src.marks, 60).filter(Array.isArray).map((m) => { const l = Math.hypot(+m[2] || 0, +m[3] || 0) || 1; return [n(m[0], -hx, hx, 0), n(m[1], -hz, hz, 0), n((+m[2] || 0) / l, -1, 1, 1), n((+m[3] || 0) / l, -1, 1, 0), m[4] === 'B' ? 'B' : 'A']; }),
       sites: {}, spawns: { T: [], CT: [] }
     };
-    ['A', 'B'].forEach((k) => { const s = src.sites && src.sites[k]; if (s && typeof s === 'object') out.sites[k] = { x: n(s.x, -40, 40, 0), z: n(s.z, -40, 40, 0), r: n(s.r, 2, 12, 6.5) }; });
+    ['A', 'B'].forEach((k) => { const s = src.sites && src.sites[k]; if (s && typeof s === 'object') out.sites[k] = { x: n(s.x, -hx, hx, 0), z: n(s.z, -hz, hz, 0), r: n(s.r, 2, 12, 6.5) }; });
     ['T', 'CT'].forEach((t) => {
       out.spawns[t] = arr(src.spawns && src.spawns[t], 10).map((p) => {
-        const o = { x: n(p.x, -39.5, 39.5, 0), z: n(p.z, -39.5, 39.5, 0) };
+        const o = { x: n(p.x, -hx + 0.5, hx - 0.5, 0), z: n(p.z, -hz + 0.5, hz - 0.5, 0) };
         if (p.yaw != null && isFinite(+p.yaw)) o.yaw = n(p.yaw, -7, 7, 0);
         return o;
       });
@@ -485,25 +495,27 @@
     const S = sanitizeMap(src);
     const extra = [];
     S.stairs.forEach((s) => { const d = MAP_DIR[s.dir]; extra.push.apply(extra, stairs(s.x, s.z, s.w, d[0], d[1], s.n)); });
-    const boxes = ENCLOSURE.concat(S.boxes.map((b) => B(b.x, b.z, b.w, b.d, b.h, b.t, b.c)), extra);
+    const hx = S.w / 2, hz = S.d / 2;
+    const boxes = enclosure(hx, hz).concat(S.boxes.map((b) => B(b.x, b.z, b.w, b.d, b.h, b.t, b.c)), extra);
     // départ posé sur une terrasse : on part à sa hauteur ; sans départ placé : départs habituels
     const floorAt = (x, z) => { let y = 0; boxes.forEach((b) => { if ((b.t === 'w' || b.h <= 0.55) && b.h <= 6 && Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) y = Math.max(y, b.h); }); return y; };
-    const def = makeSpawns(), spawns = {};
+    const def = makeSpawns(hz), spawns = {};
     ['T', 'CT'].forEach((t) => {
       spawns[t] = S.spawns[t].length ? S.spawns[t].map((p) => ({ x: p.x, y: floorAt(p.x, p.z), z: p.z, yaw: p.yaw != null ? p.yaw : Math.atan2(p.x, p.z) })) : def[t];
     });
     const dust = S.style === 'dust';
     return {
-      id, name: S.name, style: S.style, sky: S.sky, custom: 1,
+      id, name: S.name, style: S.style, sky: S.sky, custom: 1, hx, hz,
       theme: dust ? { sky: 0x9cc3e8, ground: '#c9b287', wall: '#b79c6c', crate: '#8a6335' } : { sky: 0xaebccb, ground: '#6e7277', wall: '#6f6a64', crate: '#7a5a34' },
       boxes, sites: S.sites, spawns, arches: S.arches, marks: S.marks, signs: [], awnings: [], lines: [], stripes: [], rails: []
     };
   }
   // l'inverse : une carte intégrée au format de l'éditeur (pour partir d'une carte existante)
   function mapToSource(M) {
-    const enc = (b) => b.h >= 10 && (Math.abs(Math.abs(b.x) - 40.5) < 0.01 || Math.abs(Math.abs(b.z) - 40.5) < 0.01);
+    const hx = M.hx || 40, hz = M.hz || 40;
+    const enc = (b) => b.h >= 10 && (Math.abs(Math.abs(b.x) - hx - 0.5) < 0.01 || Math.abs(Math.abs(b.z) - hz - 0.5) < 0.01);
     return sanitizeMap({
-      name: M.name + ' (copie)', style: (M.style || M.id) === 'dust' ? 'dust' : 'docks', sky: MAP_SKY.indexOf(M.id) >= 0 ? M.id : (M.style || 'dust'),
+      name: M.name + ' (copie)', w: hx * 2, d: hz * 2, style: (M.style || M.id) === 'dust' ? 'dust' : 'docks', sky: MAP_SKY.indexOf(M.id) >= 0 ? M.id : (M.style || 'dust'),
       boxes: M.boxes.filter((b) => !enc(b)), arches: M.arches || [], marks: M.marks || [], sites: M.sites,
       spawns: { T: M.spawns.T.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw })), CT: M.spawns.CT.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw })) }
     });
@@ -533,7 +545,8 @@
       if (b.h >= 10 || b.h < 1.1 || b.t === 'barrel') return;
       if (b.w * b.d > 80 || Math.max(b.w, b.d) > 16) return;
       if (b.t === 'w' && (Math.min(b.w, b.d) <= 0.7 || b.h === 2.5)) return;
-      if (Math.abs(b.z) > 31) return;                    // les zones de départ restent intactes
+      if (Math.abs(b.z) > (M.hz || 40) - 9) return;     // les zones de départ restent intactes
+      if (b.h >= 10 && (Math.abs(Math.abs(b.x) - (M.hx || 40) - 0.5) < 0.01 || Math.abs(Math.abs(b.z) - (M.hz || 40) - 0.5) < 0.01)) return;   // enceinte
       list.push(i);
     });
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
@@ -634,5 +647,5 @@
     return { d: d * f * mult + d * (1 - f), armor: Math.max(0, armor - wear * f) };
   }
 
-  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv, armorHit, sanitizeMap, buildCustom, mapToSource, makeSpawns };
+  return { CFG, ZONES, WEAPONS, GREN, SHOP, MAPS, BOXES, SITES, SPAWNS, phaseBoxes, SKINS, RAR, PASS, passTier, MASTERY, masteryLv, armorHit, sanitizeMap, buildCustom, mapToSource, makeSpawns, MAP_MIN, MAP_MAX };
 });

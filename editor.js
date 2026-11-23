@@ -15,7 +15,8 @@ const LIMIT = 800, MAXSP = 10, STEP = 0.6;
    Données de la carte (objets de l'éditeur) <-> format source
    ============================================================ */
 // k : box | stairs | arch | site | spawn | mark
-let D = { name: 'Ma carte', style: 'dust', sky: 'dust', objs: [] };
+let D = { name: 'Ma carte', style: 'dust', sky: 'dust', w: 80, d: 80, objs: [] };
+const HX = () => (D.w || 80) / 2, HZ = () => (D.d || 80) / 2;   // demi-largeur, demi-profondeur
 let localId = null;           // identifiant dans « Mes cartes »
 const DIRV = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
 
@@ -27,11 +28,11 @@ function fromSource(src) {
   S.marks.forEach((m) => objs.push({ k: 'mark', x: m[0], z: m[1], dx: m[2], dz: m[3], l: m[4] }));
   Object.keys(S.sites).forEach((id) => objs.push(Object.assign({ k: 'site', id }, S.sites[id])));
   ['T', 'CT'].forEach((team) => S.spawns[team].forEach((p) => objs.push(Object.assign({ k: 'spawn', team }, p))));
-  return { name: S.name, style: S.style, sky: S.sky, desc: S.desc, col: S.col, objs };
+  return { name: S.name, style: S.style, sky: S.sky, desc: S.desc, col: S.col, w: S.w, d: S.d, objs };
 }
 function toSource(d) {
   d = d || D;
-  const src = { v: 1, name: d.name, style: d.style, sky: d.sky, desc: d.desc || '', col: d.col || '#c99bff', boxes: [], stairs: [], arches: [], marks: [], sites: {}, spawns: { T: [], CT: [] } };
+  const src = { v: 1, name: d.name, style: d.style, sky: d.sky, desc: d.desc || '', col: d.col || '#c99bff', w: d.w || 80, d: d.d || 80, boxes: [], stairs: [], arches: [], marks: [], sites: {}, spawns: { T: [], CT: [] } };
   d.objs.forEach((o) => {
     if (o.k === 'box') { const b = { x: o.x, z: o.z, w: o.w, d: o.d, h: o.h }; if (o.t) b.t = o.t; if (o.t === 'cont') b.c = o.c; src.boxes.push(b); }
     else if (o.k === 'stairs') src.stairs.push({ x: o.x, z: o.z, w: o.w, dir: o.dir, n: o.n });
@@ -46,7 +47,7 @@ function blankMap() {
   const sp = CS.makeSpawns(), objs = [];
   ['T', 'CT'].forEach((team) => sp[team].forEach((p) => objs.push({ k: 'spawn', team, x: p.x, z: p.z })));
   objs.push({ k: 'site', id: 'A', x: -26, z: -20, r: 6.5 }, { k: 'site', id: 'B', x: 26, z: -20, r: 6.5 });
-  return { name: 'Ma carte', style: 'dust', sky: 'dust', objs };
+  return { name: 'Ma carte', style: 'dust', sky: 'dust', w: 80, d: 80, objs };
 }
 
 /* ---------- stockage local ---------- */
@@ -79,8 +80,8 @@ function markSaved() {
    ============================================================ */
 const undo = [], redo = [];
 let before = null;
-const snap = () => JSON.stringify({ n: D.name, s: D.style, k: D.sky, de: D.desc, co: D.col, o: D.objs });
-function restore(sig) { const v = JSON.parse(sig); D.name = v.n; D.style = v.s; D.sky = v.k; D.desc = v.de; D.col = v.co; D.objs = v.o; sel.clear(); syncMapPane(); changed(); }
+const snap = () => JSON.stringify({ n: D.name, s: D.style, k: D.sky, de: D.desc, co: D.col, w: D.w, d: D.d, o: D.objs });
+function restore(sig) { const v = JSON.parse(sig); D.name = v.n; D.style = v.s; D.sky = v.k; D.desc = v.de; D.col = v.co; D.w = v.w || 80; D.d = v.d || 80; D.objs = v.o; sel.clear(); syncMapPane(); changed(); }
 function begin() { if (before === null) before = snap(); }
 function commit() {
   if (before === null) return;
@@ -184,7 +185,7 @@ function resize() {
 const sx = (x) => (x - view.x) * view.s + W / 2, sz = (z) => (z - view.z) * view.s + H / 2;
 const wx = (px) => (px - W / 2) / view.s + view.x, wz = (py) => (py - H / 2) / view.s + view.z;
 const snapV = (v) => Math.round(v / snapStep) * snapStep;
-function fit() { view.x = 0; view.z = 0; view.s = Math.max(2, Math.min(W, H) / 88); draw(); }
+function fit() { view.x = 0; view.z = 0; view.s = Math.max(1, Math.min(W / (2 * HX() + 8), H / (2 * HZ() + 8))); draw(); }
 function zoomAt(f, px, py) {
   const ax = wx(px), az = wz(py);
   view.s = clamp(view.s * f, 2, 90);
@@ -221,7 +222,7 @@ function pick(x, z) {
   return best;
 }
 function cloneObj(o) { return JSON.parse(JSON.stringify(o)); }
-function move(o, dx, dz) { o.x = r2(clamp(o.x + dx, -40, 40)); o.z = r2(clamp(o.z + dz, -40, 40)); }
+function move(o, dx, dz) { o.x = r2(clamp(o.x + dx, -HX(), HX())); o.z = r2(clamp(o.z + dz, -HZ(), HZ())); }
 function rotate(o) {
   if (o.k === 'box' || o.k === 'arch') { const w = o.w; o.w = o.d; o.d = w; }
   else if (o.k === 'stairs') {   // quart de tour autour du centre
@@ -253,22 +254,20 @@ function draw() {
   g.setTransform(DPR, 0, 0, DPR, 0, 0);
   g.fillStyle = '#0b0d10'; g.fillRect(0, 0, W, H);
   // sol de la carte
-  g.fillStyle = D.style === 'dust' ? '#3d3627' : '#2a2e32'; g.fillRect(sx(-40), sz(-40), 80 * view.s, 80 * view.s);
+  const hx = HX(), hz = HZ();
+  g.fillStyle = D.style === 'dust' ? '#3d3627' : '#2a2e32'; g.fillRect(sx(-hx), sz(-hz), 2 * hx * view.s, 2 * hz * view.s);
   // grille
   const step = view.s >= 14 ? 1 : view.s >= 6 ? 2 : 5;
   g.lineWidth = 1;
-  for (let v = -40; v <= 40; v += step) {
-    const major = v % 10 === 0;
-    g.strokeStyle = v === 0 ? 'rgba(255,255,255,.22)' : major ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.045)';
-    g.beginPath(); g.moveTo(Math.round(sx(v)) + 0.5, sz(-40)); g.lineTo(Math.round(sx(v)) + 0.5, sz(40)); g.stroke();
-    g.beginPath(); g.moveTo(sx(-40), Math.round(sz(v)) + 0.5); g.lineTo(sx(40), Math.round(sz(v)) + 0.5); g.stroke();
-  }
+  const gl = (v) => (v === 0 ? 'rgba(255,255,255,.22)' : v % 10 === 0 ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.045)');
+  for (let v = -Math.floor(hx / step) * step; v <= hx; v += step) { g.strokeStyle = gl(v); g.beginPath(); g.moveTo(Math.round(sx(v)) + 0.5, sz(-hz)); g.lineTo(Math.round(sx(v)) + 0.5, sz(hz)); g.stroke(); }
+  for (let v = -Math.floor(hz / step) * step; v <= hz; v += step) { g.strokeStyle = gl(v); g.beginPath(); g.moveTo(sx(-hx), Math.round(sz(v)) + 0.5); g.lineTo(sx(hx), Math.round(sz(v)) + 0.5); g.stroke(); }
   // repères : zones de départ, nord/sud
   g.fillStyle = 'rgba(255,255,255,.28)'; g.font = '11px Trebuchet MS'; g.textAlign = 'center';
-  g.fillText('NORD · CT', sx(0), sz(-40) - 8); g.fillText('SUD · T', sx(0), sz(40) + 16);
+  g.fillText('NORD · CT · ' + (2 * hx) + ' × ' + (2 * hz) + ' m', sx(0), sz(-hz) - 8); g.fillText('SUD · T', sx(0), sz(hz) + 16);
   if (showReach && reach) drawReach();
   // enceinte
-  g.strokeStyle = '#6b757e'; g.lineWidth = Math.max(2, view.s); g.strokeRect(sx(-40) - view.s / 2, sz(-40) - view.s / 2, 81 * view.s, 81 * view.s);
+  g.strokeStyle = '#6b757e'; g.lineWidth = Math.max(2, view.s); g.strokeRect(sx(-hx) - view.s / 2, sz(-hz) - view.s / 2, (2 * hx + 1) * view.s, (2 * hz + 1) * view.s);
   // sites
   D.objs.forEach((o) => { if (o.k !== 'site') return;
     g.fillStyle = 'rgba(216,67,47,.16)'; g.strokeStyle = 'rgba(232,80,58,.9)'; g.lineWidth = 2; g.setLineDash([8, 5]);
@@ -427,7 +426,7 @@ function placePoint(x, z) {
   } else if (tool === 'spT' || tool === 'spCT') {
     const team = tool === 'spT' ? 'T' : 'CT';
     if (D.objs.filter((q) => q.k === 'spawn' && q.team === team).length >= MAXSP) { toast(MAXSP + ' départs ' + team + ' au maximum', true); before = null; return; }
-    const o = { k: 'spawn', team, x: r2(clamp(x, -39.5, 39.5)), z: r2(clamp(z, -39.5, 39.5)) }; D.objs.push(o); sel.clear(); sel.add(o);
+    const o = { k: 'spawn', team, x: r2(clamp(x, -HX() + 0.5, HX() - 0.5)), z: r2(clamp(z, -HZ() + 0.5, HZ() - 0.5)) }; D.objs.push(o); sel.clear(); sel.add(o);
   }
   commit();
 }
@@ -634,12 +633,12 @@ function props() {
   const o = list[0], one = list.length === 1;
   $('selTitle').textContent = one ? (o.k === 'box' ? boxKind(o) : KIND_N[o.k]).toUpperCase() + (o.k === 'site' ? ' ' + o.id : o.k === 'spawn' ? ' ' + o.team : '') : list.length + ' OBJETS';
   if (kinds.length === 1 || list.every((q) => q.k === 'box' || q.k === 'arch')) {
-    P.append(el('div', { class: 'row2' }, numRow('X', list, 'x', -40, 40, 0.5), numRow('Z', list, 'z', -40, 40, 0.5)));
+    P.append(el('div', { class: 'row2' }, numRow('X', list, 'x', -HX(), HX(), 0.5), numRow('Z', list, 'z', -HZ(), HZ(), 0.5)));
   }
   if (kinds.length === 1 && o.k === 'box') {
     const all = (f) => list.every(f);
     if (!all((q) => q.t === 'barrel')) {
-      P.append(el('div', { class: 'row2' }, numRow('Largeur (x)', list, 'w', 0.2, 80, 0.5), numRow('Profondeur (z)', list, 'd', 0.2, 80, 0.5)));
+      P.append(el('div', { class: 'row2' }, numRow('Largeur (x)', list, 'w', 0.2, 2 * HX(), 0.5), numRow('Profondeur (z)', list, 'd', 0.2, 2 * HZ(), 0.5)));
       P.append(numRow('Hauteur (m)', list, 'h', 0.2, 20, 0.1));
       const ts = el('select', null, [['', 'Auto : caisse ≤ 2,7 m, mur au-dessus'], ['w', 'Pierre (muret, terrasse, marches)'], ['cont', 'Conteneur en tôle']].map(([v, n]) => el('option', { value: v, selected: all((q) => q.t === v) }, n)));
       if (!list.every((q) => q.t === list[0].t)) ts.prepend(el('option', { value: '?', selected: true }, '(plusieurs)'));
@@ -662,7 +661,7 @@ function props() {
       P.append(el('p', { class: 'muted' }, 'Arrive à ' + fmt(o.n * 0.5) + ' m de haut, sur ' + fmt(o.n * STEP) + ' m de long. Pose une terrasse de la même hauteur au bout.'));
     }
   } else if (kinds.length === 1 && o.k === 'arch') {
-    P.append(el('div', { class: 'row2' }, numRow('Largeur (x)', list, 'w', 0.4, 40, 0.5), numRow('Profondeur (z)', list, 'd', 0.4, 40, 0.5)));
+    P.append(el('div', { class: 'row2' }, numRow('Largeur (x)', list, 'w', 0.4, 60, 0.5), numRow('Profondeur (z)', list, 'd', 0.4, 60, 0.5)));
     P.append(el('div', { class: 'row2' }, numRow('Hauteur du bas', list, 'y', 1.5, 12, 0.1), numRow('Épaisseur', list, 'th', 0.2, 4, 0.1)));
     P.append(el('p', { class: 'muted' }, 'Décor au-dessus des têtes (toit, linteau, portique). Il ne bloque pas les joueurs, mais il arrête les balles et la lumière.'));
   } else if (kinds.length === 1 && o.k === 'site') {
@@ -755,31 +754,34 @@ function symmetrize(axis) {
    ============================================================ */
 // carte de hauteur (cases de 0,5 m) : un joueur (rayon 0,4 m) passe d'une case à l'autre s'il monte de 0,5 m au plus,
 // ou de 1,45 m au plus en sautant ; il peut toujours descendre
-const CELL = 0.5, N = 160;
+const CELL = 0.5;
+let NX = 160, NZ = 160, GX = 40, GZ = 40;   // cases de la grille et demi-tailles (fixées à chaque vérification)
 function heightGrid(M) {
-  const hg = new Float32Array(N * N);
+  GX = M.hx; GZ = M.hz; NX = Math.round(2 * GX / CELL); NZ = Math.round(2 * GZ / CELL);
+  const hg = new Float32Array(NX * NZ);
   M.boxes.forEach((b, idx) => {
     if (idx < 4) return;   // enceinte (bord de carte, traité plus bas)
     const m = CS.CFG.radius - 0.05;
-    const i0 = clamp(Math.floor((b.x - b.w / 2 - m + 40) / CELL), 0, N - 1), i1 = clamp(Math.ceil((b.x + b.w / 2 + m + 40) / CELL) - 1, 0, N - 1);
-    const j0 = clamp(Math.floor((b.z - b.d / 2 - m + 40) / CELL), 0, N - 1), j1 = clamp(Math.ceil((b.z + b.d / 2 + m + 40) / CELL) - 1, 0, N - 1);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * N + i; if (b.h > hg[k]) hg[k] = b.h; }
+    const i0 = clamp(Math.floor((b.x - b.w / 2 - m + GX) / CELL), 0, NX - 1), i1 = clamp(Math.ceil((b.x + b.w / 2 + m + GX) / CELL) - 1, 0, NX - 1);
+    const j0 = clamp(Math.floor((b.z - b.d / 2 - m + GZ) / CELL), 0, NZ - 1), j1 = clamp(Math.ceil((b.z + b.d / 2 + m + GZ) / CELL) - 1, 0, NZ - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * NX + i; if (b.h > hg[k]) hg[k] = b.h; }
   });
   // bord de la carte (enceinte)
-  for (let i = 0; i < N; i++) { hg[i] = hg[(N - 1) * N + i] = hg[i * N] = hg[i * N + N - 1] = 99; }
+  for (let i = 0; i < NX; i++) { hg[i] = hg[(NZ - 1) * NX + i] = 99; }
+  for (let j = 0; j < NZ; j++) { hg[j * NX] = hg[j * NX + NX - 1] = 99; }
   return hg;
 }
 function flood(hg, starts) {
-  const seen = new Uint8Array(N * N), q = [];
-  starts.forEach(([x, z]) => { const i = clamp(Math.floor((x + 40) / CELL), 0, N - 1), j = clamp(Math.floor((z + 40) / CELL), 0, N - 1), k = j * N + i; if (!seen[k]) { seen[k] = 1; q.push(k); } });
+  const seen = new Uint8Array(NX * NZ), q = [];
+  starts.forEach(([x, z]) => { const k = cellOf(x, z); if (!seen[k]) { seen[k] = 1; q.push(k); } });
   for (let h = 0; h < q.length; h++) {
-    const k = q[h], i = k % N, j = (k / N) | 0, y = hg[k];
-    const nb = [i > 0 ? k - 1 : -1, i < N - 1 ? k + 1 : -1, j > 0 ? k - N : -1, j < N - 1 ? k + N : -1];
+    const k = q[h], i = k % NX, j = (k / NX) | 0, y = hg[k];
+    const nb = [i > 0 ? k - 1 : -1, i < NX - 1 ? k + 1 : -1, j > 0 ? k - NX : -1, j < NZ - 1 ? k + NX : -1];
     for (const n of nb) { if (n < 0 || seen[n]) continue; if (hg[n] - y <= 1.45 && hg[n] < 50) { seen[n] = 1; q.push(n); } }
   }
   return seen;
 }
-const cellOf = (x, z) => clamp(Math.floor((z + 40) / CELL), 0, N - 1) * N + clamp(Math.floor((x + 40) / CELL), 0, N - 1);
+const cellOf = (x, z) => clamp(Math.floor((z + GZ) / CELL), 0, NZ - 1) * NX + clamp(Math.floor((x + GX) / CELL), 0, NX - 1);
 let issues = [], vT = 0;
 function validateSoon() { clearTimeout(vT); vT = setTimeout(validate, 120); }
 function validate() {
@@ -843,14 +845,15 @@ function issueMarks() {
   });
 }
 function drawReach() {
-  const c = document.createElement('canvas'); c.width = c.height = N; const cg = c.getContext('2d'), im = cg.createImageData(N, N);
-  for (let k = 0; k < N * N; k++) {
+  if (!reach.T || reach.T.length !== NX * NZ) return;
+  const c = document.createElement('canvas'); c.width = NX; c.height = NZ; const cg = c.getContext('2d'), im = cg.createImageData(NX, NZ);
+  for (let k = 0; k < NX * NZ; k++) {
     const t = reach.T[k], ct = reach.CT[k], i = k * 4;
     if (!t && !ct) { im.data[i + 3] = 0; continue; }
     im.data[i] = t && ct ? 120 : t ? 140 : 70; im.data[i + 1] = t && ct ? 220 : t ? 210 : 150; im.data[i + 2] = t && ct ? 120 : t ? 80 : 255; im.data[i + 3] = 70;
   }
   cg.putImageData(im, 0, 0);
-  g.imageSmoothingEnabled = false; g.drawImage(c, sx(-40), sz(-40), 80 * view.s, 80 * view.s); g.imageSmoothingEnabled = true;
+  g.imageSmoothingEnabled = false; g.drawImage(c, sx(-GX), sz(-GZ), 2 * GX * view.s, 2 * GZ * view.s); g.imageSmoothingEnabled = true;
 }
 function stats() {
   const n = (k) => D.objs.filter((o) => o.k === k).length;
@@ -861,7 +864,28 @@ function stats() {
 /* ============================================================
    Carte : nom, décor, ciel
    ============================================================ */
-function syncMapPane() { $('mname').value = D.name; $('mStyle').value = D.style; $('mSky').value = D.sky; $('mDesc').value = D.desc || ''; $('mCol').value = D.col || '#c99bff'; }
+function syncMapPane() { $('mW').value = D.w || 80; $('mD').value = D.d || 80; document.querySelectorAll('#mSizes button').forEach((b) => b.classList.toggle('on', +b.dataset.w === D.w && +b.dataset.w === D.d)); $('mname').value = D.name; $('mStyle').value = D.style; $('mSky').value = D.sky; $('mDesc').value = D.desc || ''; $('mCol').value = D.col || '#c99bff'; }
+// taille : les objets restent à leur place ; ceux qui sortent de la carte sont supprimés (après confirmation),
+// les départs laissés à leur place habituelle suivent le bord
+function setSize(w, d) {
+  w = Math.round(clamp(+w || 80, CS.MAP_MIN, CS.MAP_MAX) / 2) * 2; d = Math.round(clamp(+d || 80, CS.MAP_MIN, CS.MAP_MAX) / 2) * 2;
+  if (w === D.w && d === D.d) { syncMapPane(); return; }
+  const hx = w / 2, hz = d / 2;
+  const out = D.objs.filter((o) => { const r = rectOf(o); return o.k !== 'site' && o.k !== 'spawn' && (Math.abs(r.x) - r.w / 2 > hx || Math.abs(r.z) - r.d / 2 > hz); });
+  if (out.length && !confirm(out.length + ' objet' + (out.length > 1 ? 's sont' : ' est') + ' en dehors de la nouvelle taille (' + w + ' × ' + d + ' m) et ' + (out.length > 1 ? 'seront supprimés' : 'sera supprimé') + '. Continuer ?')) { syncMapPane(); return; }
+  begin();
+  const oldDef = CS.makeSpawns(HZ()), newDef = CS.makeSpawns(hz);
+  D.objs = D.objs.filter((o) => out.indexOf(o) < 0);
+  D.objs.forEach((o) => {
+    if (o.k === 'spawn') { const i = oldDef[o.team].findIndex((p) => Math.abs(p.x - o.x) < 0.01 && Math.abs(p.z - o.z) < 0.01); if (i >= 0) { o.x = newDef[o.team][i].x; o.z = newDef[o.team][i].z; } }
+    if (o.k === 'box' || o.k === 'arch') { o.w = Math.min(o.w, w); o.d = Math.min(o.d, d); }
+    o.x = r2(clamp(o.x, -hx + (o.k === 'spawn' ? 0.5 : 0), hx - (o.k === 'spawn' ? 0.5 : 0))); o.z = r2(clamp(o.z, -hz + (o.k === 'spawn' ? 0.5 : 0), hz - (o.k === 'spawn' ? 0.5 : 0)));
+  });
+  D.w = w; D.d = d; sel.clear(); commit(); syncMapPane(); fit();
+}
+$('mW').addEventListener('change', () => setSize($('mW').value, D.d));
+$('mD').addEventListener('change', () => setSize(D.w, $('mD').value));
+document.querySelectorAll('#mSizes button').forEach((b) => b.addEventListener('click', () => setSize(+b.dataset.w, +b.dataset.w)));
 $('mDesc').addEventListener('input', () => { begin(); D.desc = $('mDesc').value.slice(0, 40); commit(); });
 $('mCol').addEventListener('input', () => { begin(); D.col = $('mCol').value; commit(); });
 $('mname').addEventListener('input', () => { begin(); D.name = $('mname').value.slice(0, 24); commit(); });
@@ -876,9 +900,11 @@ function load(src, id, saved) {
   undo.length = 0; redo.length = 0; sel.clear(); syncMapPane(); fit(); changed();
 }
 function thumb(src, size) {
-  const c = el('canvas', { width: size, height: size }), t = c.getContext('2d'), k = size / 82;
-  const M = CS.buildCustom(src, 'ed_th'), X = (x) => (x + 41) * k;
-  t.fillStyle = M.style === 'dust' ? '#3d3627' : '#2a2e32'; t.fillRect(0, 0, size, size);
+  const M = CS.buildCustom(src, 'ed_th'), E = 2 * Math.max(M.hx, M.hz) + 2;
+  const c = el('canvas', { width: size, height: size }), t = c.getContext('2d'), k = size / E;
+  const X = (x) => x * k + size / 2;
+  t.fillStyle = '#0d1013'; t.fillRect(0, 0, size, size);
+  t.fillStyle = M.style === 'dust' ? '#3d3627' : '#2a2e32'; t.fillRect(X(-M.hx - 1), X(-M.hz - 1), (2 * M.hx + 2) * k, (2 * M.hz + 2) * k);
   M.boxes.slice().sort((a, b) => a.h - b.h).forEach((b) => { t.fillStyle = boxFill({ t: b.t, h: b.h, c: b.c }); t.fillRect(X(b.x - b.w / 2), X(b.z - b.d / 2), Math.max(1, b.w * k), Math.max(1, b.d * k)); });
   Object.keys(M.sites).forEach((s) => { const q = M.sites[s]; t.strokeStyle = '#e8503a'; t.lineWidth = 1.5; t.beginPath(); t.arc(X(q.x), X(q.z), q.r * k, 0, 7); t.stroke(); });
   return c;
@@ -1015,7 +1041,7 @@ function open3D() {
 }
 function close3D() { V3.on = false; cancelAnimationFrame(V3.raf); if (document.pointerLockElement) document.exitPointerLock(); $('v3').classList.add('hide'); }
 function place3(team) {
-  const M = V3.M, p = (M.spawns[team] || [])[0] || { x: 0, z: team === 'T' ? 35 : -35, y: 0, yaw: team === 'T' ? 0 : Math.PI };
+  const M = V3.M, p = (M.spawns[team] || [])[0] || { x: 0, z: team === 'T' ? M.hz - 5 : -M.hz + 5, y: 0, yaw: team === 'T' ? 0 : Math.PI };
   V3.x = p.x; V3.z = p.z; V3.y = (p.y || 0) + 1.65; V3.yaw = p.yaw; V3.pitch = -0.05; V3.vy = 0;
 }
 function ground3(x, z, y) { let gnd = 0; V3.M.boxes.forEach((b) => { if (b.h <= y + 0.55 && b.h > gnd && Math.abs(x - b.x) < b.w / 2 + 0.24 && Math.abs(z - b.z) < b.d / 2 + 0.24) gnd = b.h; }); return gnd; }
@@ -1033,14 +1059,14 @@ function loop3(t) {
   const K = V3.keys, f = (K.KeyW ? 1 : 0) - (K.KeyS ? 1 : 0), r = (K.KeyD ? 1 : 0) - (K.KeyA ? 1 : 0);
   const sy = Math.sin(V3.yaw), cy = Math.cos(V3.yaw), spd = (V3.walk ? 6.1 : 14) * (K.ShiftLeft || K.ShiftRight ? 0.35 : 1), len = Math.hypot(f, r) || 1;
   V3.x += (-sy * f + cy * r) / len * spd * dt; V3.z += (-cy * f - sy * r) / len * spd * dt;
-  V3.x = clamp(V3.x, -39.6, 39.6); V3.z = clamp(V3.z, -39.6, 39.6);
+  V3.x = clamp(V3.x, -V3.M.hx + 0.4, V3.M.hx - 0.4); V3.z = clamp(V3.z, -V3.M.hz + 0.4, V3.M.hz - 0.4);
   if (V3.walk) {
     let feet = V3.y - 1.65; collide3(feet);
     if (K.Space && feet <= ground3(V3.x, V3.z, feet) + 0.01) V3.vy = 6.5;
     V3.vy -= 21 * dt; feet += V3.vy * dt;
     const gnd = ground3(V3.x, V3.z, feet); if (feet <= gnd) { feet = gnd; V3.vy = 0; }
     V3.y = feet + 1.65;
-  } else V3.y = clamp(V3.y + ((K.Space ? 1 : 0) - (K.KeyC || K.ControlLeft ? 1 : 0)) * spd * 0.8 * dt, 0.4, 80);
+  } else V3.y = clamp(V3.y + ((K.Space ? 1 : 0) - (K.KeyC || K.ControlLeft ? 1 : 0)) * spd * 0.8 * dt, 0.4, 200);
   const cam = V3.cam; cam.position.set(V3.x, V3.y, V3.z); cam.rotation.set(V3.pitch, V3.yaw, 0);
   if (Math.abs(cam.fov - 78) > 0.01) { cam.fov = 78; cam.updateProjectionMatrix(); }
   GFX.fx.update(dt); GFX.render(t / 1000);
@@ -1049,7 +1075,7 @@ $('b3d').addEventListener('click', open3D);
 $('v3Close').addEventListener('click', close3D);
 $('v3T').addEventListener('click', () => place3('T'));
 $('v3CT').addEventListener('click', () => place3('CT'));
-$('v3Top').addEventListener('click', () => { V3.walk = false; $('v3mode').textContent = 'vol'; V3.x = 0; V3.z = 34; V3.y = 48; V3.yaw = 0; V3.pitch = -0.95; });
+$('v3Top').addEventListener('click', () => { const k = Math.max(V3.M.hx, V3.M.hz) / 40; V3.walk = false; $('v3mode').textContent = 'vol'; V3.x = 0; V3.z = 34 * k; V3.y = 48 * k; V3.yaw = 0; V3.pitch = -0.95; });
 $('v3c').addEventListener('click', () => { try { const p = $('v3c').requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} });
 document.addEventListener('mousemove', (e) => {
   if (!V3.on || document.pointerLockElement !== $('v3c')) return;

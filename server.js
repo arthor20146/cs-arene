@@ -436,7 +436,8 @@ class Room {
     let x = p.x - Math.sin(p.yaw) * dist, z = p.z - Math.cos(p.yaw) * dist;
     const inWall = this.solid().some((b) => b.h > p.y + 0.2 && Math.abs(x - b.x) < b.w / 2 + 0.1 && Math.abs(z - b.z) < b.d / 2 + 0.1);
     if (inWall) { x = p.x; z = p.z; }
-    x = Math.max(-39.5, Math.min(39.5, x)); z = Math.max(-39.5, Math.min(39.5, z));
+    const hx = this.map.hx - 0.5, hz = this.map.hz - 0.5;
+    x = Math.max(-hx, Math.min(hx, x)); z = Math.max(-hz, Math.min(hz, z));
     this.drops.push({
       i: this.nextDrop++, w: id, x: r2(x), y: r2(this.groundY(x, z, p.y)), z: r2(z), r: r2(Math.random() * 6.28),
       ox: r2(p.x), oy: r2(p.y), oz: r2(p.z), mag, res, by: p.id, at: Date.now()
@@ -502,8 +503,9 @@ class Room {
     const list = this.map.spawns[p.team];
     const sp = list[idx % list.length];
     p.x = sp.x; p.y = sp.y; p.z = sp.z; p.yaw = sp.yaw; p.pitch = 0; p.c = 0;
-    p.alive = true; p.hp = 100; p.act = null; p.pg = 0;
-    send(p.ws, { type: 'spawn', x: sp.x, y: sp.y, z: sp.z, yaw: sp.yaw });
+    p.alive = true; p.hp = 100; p.act = null; p.pg = 0; p.rlS = 0; p.shot = null;
+    p.tp = (p.tp || 0) + 1;
+    send(p.ws, { type: 'spawn', x: sp.x, y: sp.y, z: sp.z, yaw: sp.yaw, s: p.tp });
   }
 
   startRound() {
@@ -750,6 +752,11 @@ class Room {
     if (!w) return;
     const now = Date.now();
     if (this.jam && now < this.jam.until && w.slot === this.jam.s) return;   // arme bloquée
+    // anti-triche : chaque touche doit suivre un tir accepté (au plus une cible par plomb), sans mur infranchissable entre les deux
+    const s = sh.shot;
+    if (!s || now - s.t > 450 || s.w !== wid || s.n <= 0) return;
+    if (!this.losOk(sh, t, w)) { this.flag(sh, 'tir à travers les murs', now, 0.5); return; }
+    s.n--;
     // une balle par cible : un tir de chevrotine peut toucher plusieurs joueurs
     const last = sh.lastHit.get(t.id) || 0;
     if (now - last < w.rof * 1000 * 0.6) return;
@@ -918,7 +925,7 @@ class Room {
         if (Math.hypot(g.vx, g.vz) < 0.25) { g.vx = 0; g.vz = 0; }
       }
     }
-    g.x = Math.max(-39.6, Math.min(39.6, g.x)); g.z = Math.max(-39.6, Math.min(39.6, g.z));
+    g.x = Math.max(-this.map.hx + 0.4, Math.min(this.map.hx - 0.4, g.x)); g.z = Math.max(-this.map.hz + 0.4, Math.min(this.map.hz - 0.4, g.z));
     return floor;
   }
 
@@ -1136,7 +1143,7 @@ class Room {
     else if (a === 'respawn') this.spawnPlayer(p, this.spawnN++);
     else if (a === 'tp') {
       if (!p.alive) return;
-      p.x = Math.max(-39.5, Math.min(39.5, num(m.x))); p.z = Math.max(-39.5, Math.min(39.5, num(m.z))); p.y = Math.max(0, Math.min(8, num(m.y)));
+      p.x = Math.max(-this.map.hx + 0.5, Math.min(this.map.hx - 0.5, num(m.x))); p.z = Math.max(-this.map.hz + 0.5, Math.min(this.map.hz - 0.5, num(m.z))); p.y = Math.max(0, Math.min(22, num(m.y)));
       p.yaw = num(m.yaw, p.yaw); p.act = null; p.pg = 0; p.tp = (p.tp || 0) + 1;
       send(p.ws, { type: 'tp', x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), c: 0, s: p.tp, n: '' });
     } else if (a === 'bomb') {
@@ -1208,15 +1215,20 @@ class Room {
         if (!stale) { p.yaw = num(m.yaw); p.pitch = num(m.pitch); p.c = m.c ? 1 : 0; }
         p.rl = m.rl ? 1 : 0;
         if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife' || (GREN[m.w] && p.g[m.w] > 0))) p.inv.cur = m.w;
-        if (m.w === p.inv.cur) this.noteAmmo(p, m.am); // sinon : message parti avant un échange d'arme
+        this.reloadTick(p, !!m.rl, now);
+        if (m.w === p.inv.cur) this.noteAmmo(p, m.am, now); // sinon : message parti avant un échange d'arme
         if (!p.alive || this.phase === 'freeze' || stale) return;
-        p.x = Math.max(-40, Math.min(40, num(m.x, p.x)));
-        p.y = Math.max(0, Math.min(8, num(m.y, p.y)));
-        p.z = Math.max(-40, Math.min(40, num(m.z, p.z)));
+        const HX = this.map.hx, HZ = this.map.hz;
+        const nx = Math.max(-HX, Math.min(HX, num(m.x, p.x))), ny = Math.max(0, Math.min(22, num(m.y, p.y))), nz = Math.max(-HZ, Math.min(HZ, num(m.z, p.z)));
+        if (!this.practice && !this.moveOk(p, nx, ny, nz, now)) { this.correct(p, now); break; }
+        p.x = nx; p.y = ny; p.z = nz;
+        (p.hist || (p.hist = [])).push([now, nx, ny, nz, p.c]);
+        while (p.hist.length && now - p.hist[0][0] > 400) p.hist.shift();
         break;
       }
       case 'shoot': {
         if (!p.alive || !Array.isArray(m.o) || !Array.isArray(m.e)) return;
+        if (!this.fireOk(p, now)) return;   // trop rapide, chargeur vide ou arme bloquée : le tir ne compte pas
         this.bcast({
           type: 'shoot', id: p.id, w: p.inv.cur,
           o: m.o.slice(0, 3).map((v) => r2(num(v))), e: m.e.slice(0, 3).map((v) => r2(num(v))),
@@ -1307,10 +1319,129 @@ class Room {
   }
 
   // munitions de l'arme en main, connues du client : on les garde pour le dépôt au sol
-  noteAmmo(p, am) {
+  noteAmmo(p, am, now) {
+    now = now || Date.now();
     const id = p.inv.cur, w = WEAPONS[id];
     if (!w || !w.mag || !Array.isArray(am)) return;
-    p.am[id] = [Math.max(0, Math.min(w.mag, num(am[0]) | 0)), Math.max(0, Math.min(w.res, num(am[1]) | 0))];
+    const mag = Math.max(0, Math.min(w.mag, num(am[0]) | 0)), res = Math.max(0, Math.min(w.res, num(am[1]) | 0));
+    if (this.practice) { p.am[id] = [mag, res]; return; }   // entraînement : munitions libres
+    const a = this.ammoOf(p, id);
+    if (p.rlS) return;   // rechargement en cours : le serveur fera le compte à la fin
+    // le client en annonce plus que le serveur n'en compte : munitions inventées ou désynchronisées, on corrige
+    if ((mag > a[0] || res > a[1]) && now - (p.amT || 0) > 900) { p.amT = now; send(p.ws, { type: 'am', w: id, mag: a[0], res: a[1] }); }
+    p.am[id] = [Math.min(mag, a[0]), Math.min(res, a[1])];
+  }
+
+  /* ---------- anti-triche : déplacement, cadence de tir, munitions, ligne de tir ---------- */
+  // compteur de fautes (s'efface en une dizaine de secondes) ; trop de fautes : expulsion
+  flag(p, why, now, w) {
+    now = now || Date.now();
+    p.vio = (p.vio || 0) * Math.exp(-(now - (p.vioT || now)) / 10000) + (w || 1); p.vioT = now;
+    if (p.vio > 30 && !p.kicked) {
+      p.kicked = true;
+      console.log('Anti-triche : ' + p.name + ' expulsé (' + why + ') de la salle ' + this.name);
+      send(p.ws, { type: 'err', text: 'Expulsé : triche détectée (' + why + ')' });
+      this.msg(p.name + ' a été expulsé (triche détectée)', 'err');
+      setTimeout(() => { try { p.ws.close(); } catch (e) {} }, 200);
+    }
+    return false;
+  }
+  // sol sous un joueur (avec son rayon : debout au bord d'une caisse, on est dessus)
+  floorAt(x, z, y) {
+    let g = 0;
+    for (const b of this.solid()) if (b.h <= y + 0.3 && b.h > g && Math.abs(x - b.x) <= b.w / 2 + 0.45 && Math.abs(z - b.z) <= b.d / 2 + 0.45) g = b.h;
+    return g;
+  }
+  // nouvelle position plausible ? vitesse (avec une réserve pour les à-coups du réseau), murs, hauteur de saut, temps en l'air
+  moveOk(p, x, y, z, now) {
+    if (p.aTp !== p.tp || !p.aT) { p.ax = p.x; p.ay = p.y; p.az = p.z; p.aT = now; p.aTp = p.tp; p.mvB = 2; p.gY = p.y; p.airS = 0; }
+    const dt = Math.min(1, (now - p.aT) / 1000), VMAX = 7.2;
+    p.aT = now;
+    p.mvB = Math.min(VMAX * 0.75, p.mvB + VMAX * dt);
+    const d = Math.hypot(x - p.ax, z - p.az);
+    if (d > p.mvB + 0.3) return this.flag(p, 'vitesse', now);
+    const yy = Math.max(p.ay, y) + 0.62;
+    if (d > 0.02 && this.segBlocked(p.ax, yy, p.az, x, yy, z)) return this.flag(p, 'traverse les murs', now, 0.5);
+    const fl = this.floorAt(x, z, y);
+    if (y <= fl + 0.3) { p.gY = y; p.airS = 0; } else if (!p.airS) p.airS = now;
+    if (y > p.ay + 0.02 && y > p.gY + 1.35) return this.flag(p, 'vol', now);
+    if (p.airS && now - p.airS > 2500 && y > fl + 0.5) return this.flag(p, 'vol', now);
+    p.mvB -= d; p.ax = x; p.ay = y; p.az = z;
+    return true;
+  }
+  // position refusée : on renvoie le joueur à la dernière position acceptée (sans toucher à sa visée)
+  correct(p, now) {
+    if (now - (p.corT || 0) < 250) return;
+    p.corT = now; p.tp = (p.tp || 0) + 1; p.aTp = p.tp;
+    p.x = p.ax; p.y = p.ay; p.z = p.az; p.mvB = 2; p.airS = 0;
+    send(p.ws, { type: 'tp', x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), c: p.c, s: p.tp, n: '', k: 1 });
+  }
+  // rechargement : commencé quand le client annonce rl = 1, terminé quand il repasse à 0 (ou change d'arme)
+  reloadTick(p, rl, now) {
+    if (rl && !p.rlS && p.alive) { p.rlS = now; p.rlW = p.inv.cur; return; }
+    if (p.rlS && (!rl || p.inv.cur !== p.rlW)) this.finishReload(p, now);
+  }
+  finishReload(p, now) {
+    const id = p.rlW, w = WEAPONS[id], el = now - p.rlS; p.rlS = 0;
+    if (!w || !w.mag || p.inv.cur !== id && !(p.inv.primary === id || p.inv.secondary === id)) return;
+    if (p.inv.cur !== id) return;   // arme changée pendant le rechargement : rien n'est rechargé (comme chez le client)
+    const a = this.ammoOf(p, id).slice(), room = Math.min(w.mag - a[0], this.practice ? w.mag : a[1]);
+    if (room <= 0) return;
+    let n = 0;
+    if (w.shell) n = el >= 360 ? Math.min(room, Math.floor((el - 360) / 500) + 1) : 0;   // une cartouche toutes les 0,5 s
+    else if (el >= w.rl * 1000 * 0.8) n = room;
+    a[0] += n; if (!this.practice) a[1] -= n;
+    p.am[id] = a;
+  }
+  // un tir : cadence (crédit de tirs qui se remplit à la cadence de l'arme), chargeur, arme bloquée
+  fireOk(p, now) {
+    const id = p.inv.cur, w = WEAPONS[id];
+    if (!w || GREN[id]) return false;
+    if (this.jam && now < this.jam.until && w.slot === this.jam.s) return false;
+    if (p.rlS) this.finishReload(p, now);   // fusil à pompe : tirer interrompt le rechargement
+    // crédit par arme (changer d'arme ne le remplit pas plus vite : la sortie de l'arme prend déjà 0,4 s)
+    const F = p.fire || (p.fire = {}), f = F[id] || (F[id] = { c: 2, t: now });
+    f.c = Math.min(2, f.c + (now - f.t) / 1000 / w.rof); f.t = now;
+    if (f.c < 0.65) { this.flag(p, 'cadence de tir', now, 0.25); return false; }
+    if (w.mag && !(this.mode === 'sandbox')) {
+      const a = this.ammoOf(p, id).slice();
+      if (a[0] <= 0) { if (now - (p.amT || 0) > 900) { p.amT = now; send(p.ws, { type: 'am', w: id, mag: a[0], res: a[1] }); } return false; }
+      a[0]--; p.am[id] = a;
+    }
+    f.c -= 1;
+    p.shot = { t: now, w: id, n: w.pellets || 1 };
+    return true;
+  }
+  // ligne de tir : du regard du tireur à la tête, au torse ou aux jambes de la cible (positions des 400 dernières ms),
+  // sans mur infranchissable et en traversant au plus 2 obstacles que l'arme perce (bois, tôle)
+  losOk(sh, t, w) {
+    const ey = sh.y + (sh.c ? 1.15 : 1.62);
+    const pens = (b) => (b.t === 'w' ? 0 : b.t === 'cont' || b.t === 'barrel' ? 2 : b.h <= 2.7 ? 1 : 0);
+    const clear = (x, y, z) => {
+      let n = 0;
+      for (const b of this.segBoxes(sh.x, ey, sh.z, x, y, z)) { const pb = pens(b); if (!pb || w.pen < pb || ++n > 2) return false; }
+      return true;
+    };
+    const pts = [[t.x, t.y, t.z, t.c]].concat(t.hist || []).map((h) => (h.length === 4 ? h : [h[1], h[2], h[3], h[4]]));
+    return pts.some(([x, y, z, c]) => [0.45, 1.0, c ? 1.15 : 1.6].some((dy) => clear(x, y + dy, z)));
+  }
+  // obstacles traversés par le segment a->b
+  segBoxes(ax, ay, az, bx, by, bz) {
+    const o = [ax, ay, az], d = [bx - ax, by - ay, bz - az], out = [];
+    for (const b of this.solid()) {
+      if (b.h >= 10 && (Math.abs(Math.abs(b.x) - this.map.hx - 0.5) < 0.01 || Math.abs(Math.abs(b.z) - this.map.hz - 0.5) < 0.01)) continue;   // enceinte
+      const lo = [b.x - b.w / 2 + 0.1, 0, b.z - b.d / 2 + 0.1], hi = [b.x + b.w / 2 - 0.1, b.h - 0.08, b.z + b.d / 2 - 0.1];
+      let t0 = 0, t1 = 1, hit = true;
+      for (let i = 0; i < 3; i++) {
+        if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) { hit = false; break; } continue; }
+        let a = (lo[i] - o[i]) / d[i], c = (hi[i] - o[i]) / d[i];
+        if (a > c) { const q = a; a = c; c = q; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+        if (t0 > t1) { hit = false; break; }
+      }
+      if (hit) out.push(b);
+    }
+    return out;
   }
 
   addPlayer(ws, name, want, acc) {
