@@ -504,8 +504,10 @@ class Room {
     const sp = list[idx % list.length];
     p.x = sp.x; p.y = sp.y; p.z = sp.z; p.yaw = sp.yaw; p.pitch = 0; p.c = 0;
     p.alive = true; p.hp = 100; p.act = null; p.pg = 0; p.rlS = 0; p.shot = null;
-    p.tp = (p.tp || 0) + 1;
-    send(p.ws, { type: 'spawn', x: sp.x, y: sp.y, z: sp.z, yaw: sp.yaw, s: p.tp });
+    // contrôle des déplacements : on repart du point d'apparition ; les positions encore en route
+    // (envoyées avant l'apparition) sont ignorées pendant 0,3 s. Compatible avec tous les clients.
+    p.spawnT = Date.now(); p.ax = sp.x; p.ay = sp.y; p.az = sp.z; p.aT = p.spawnT; p.aTp = p.tp || 0; p.mvB = 2; p.gY = sp.y; p.airS = 0; p.hist = [];
+    send(p.ws, { type: 'spawn', x: sp.x, y: sp.y, z: sp.z, yaw: sp.yaw });
   }
 
   startRound() {
@@ -1194,7 +1196,7 @@ class Room {
     }
     this.players.forEach((p) => {
       common.me = {
-        hp: Math.max(0, p.hp), ar: Math.round(p.armor), he: p.helmet ? 1 : 0, mo: p.money, p: p.inv.primary, s: p.inv.secondary,
+        hp: Math.max(0, p.hp), tp: p.tp || 0, ar: Math.round(p.armor), he: p.helmet ? 1 : 0, mo: p.money, p: p.inv.primary, s: p.inv.secondary,
         k: p.kit ? 1 : 0, bm: b.s === 'carried' && b.c === p.id ? 1 : 0, pg: r2(Math.min(1, p.pg || 0)),
         al: p.alive ? 1 : 0, bo: buyOpen && p.alive ? 1 : 0, t: p.team, g: p.g,
         sl: buyOpen && p.alive ? Object.keys(p.bought).filter((id) => p.inv.primary === id || p.inv.secondary === id) : []
@@ -1217,7 +1219,7 @@ class Room {
         if (typeof m.w === 'string' && (m.w === p.inv.primary || m.w === p.inv.secondary || m.w === 'knife' || (GREN[m.w] && p.g[m.w] > 0))) p.inv.cur = m.w;
         this.reloadTick(p, !!m.rl, now);
         if (m.w === p.inv.cur) this.noteAmmo(p, m.am, now); // sinon : message parti avant un échange d'arme
-        if (!p.alive || this.phase === 'freeze' || stale) return;
+        if (!p.alive || this.phase === 'freeze' || stale || now - (p.spawnT || 0) < 300) return;
         const HX = this.map.hx, HZ = this.map.hz;
         const nx = Math.max(-HX, Math.min(HX, num(m.x, p.x))), ny = Math.max(0, Math.min(22, num(m.y, p.y))), nz = Math.max(-HZ, Math.min(HZ, num(m.z, p.z)));
         if (!this.practice && !this.moveOk(p, nx, ny, nz, now)) { this.correct(p, now); break; }

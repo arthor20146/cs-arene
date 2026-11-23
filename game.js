@@ -979,6 +979,7 @@ function hitMark(hs) {
 function connect() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   $('err').textContent = '';
+  tpSeq = 0;   // nouvelle connexion : nouveau joueur côté serveur
   try { ws = new WebSocket(url); } catch (e) { $('err').textContent = 'Connexion impossible.'; return; }
   ws.onopen = () => send({ type: 'join', name: joinInfo.name, room: joinInfo.room, team: joinInfo.team, map: joinInfo.map, mode: joinInfo.mode, lobby: joinInfo.lobby ? 1 : 0, tok: Account.token() || '' });
   let hold = null;   // carte perso inconnue : on la télécharge avant de traiter les messages
@@ -1019,7 +1020,7 @@ function onMsg(m) {
       clearPractice(); PR.hintT = 10;
       if (S.pm === 'sandbox') sendOpts();
       clearNades(); resetNadeState();
-      tpSeq = 0; S.hf = undefined;
+      S.hf = undefined;
       $('play').disabled = false;
       buildVM(cur);
       S.lb = joinInfo.lobby ? 1 : 0; S.ph = 'wait';
@@ -1074,6 +1075,7 @@ function onSnap(m) {
   syncFlying(m.gr || []); syncZones(m.zn || []);
   const oldTeam = myTeam;
   S.me = m.me; myTeam = m.me.t;
+  if (m.me.tp != null && m.me.tp > tpSeq) tpSeq = m.me.tp;   // filet de sécurité : numéro de téléportation du serveur
   const lob = inLobby();
   // mi-temps (un changement de camp peut aussi venir d'un transfuge : on se fie au numéro de manche)
   if (!lob && S.hf === 0 && m.hf === 1) {
